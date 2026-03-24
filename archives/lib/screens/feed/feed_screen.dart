@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../models/post_model.dart';
 import '../../core/navigation/interaction_gate.dart';
-import '../../core/share/post_share_service.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/post_providers.dart';
 import '../../widgets/common/branded_state_view.dart';
@@ -13,18 +13,7 @@ import '../../widgets/post/post_card.dart';
 class FeedScreen extends ConsumerWidget {
   const FeedScreen({super.key});
 
-  Future<void> _sharePost(BuildContext context, String postId) async {
-    try {
-      await PostShareService.sharePostUrl(postId);
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to share this post right now.')),
-      );
-    }
-  }
-
-  void _showPostOptions(BuildContext context, WidgetRef ref, String postId) {
+  void _showPostOptions(BuildContext context, WidgetRef ref, PostModel post) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -32,12 +21,21 @@ class FeedScreen extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit Post'),
+              subtitle: const Text('Update your post content'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEditPostDialog(context, ref, post);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.archive_outlined),
               title: const Text('Archive Post'),
               subtitle: const Text('Hide from feed. You can unarchive later.'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await ref.read(postRepositoryProvider).archivePost(postId);
+                await ref.read(postRepositoryProvider).archivePost(post.id);
                 ref.read(feedProvider.notifier).refresh();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -55,8 +53,68 @@ class FeedScreen extends ConsumerWidget {
               subtitle: const Text('Permanently delete this post'),
               onTap: () {
                 Navigator.pop(ctx);
-                _confirmDelete(context, ref, postId);
+                _confirmDelete(context, ref, post.id);
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditPostDialog(
+    BuildContext context,
+    WidgetRef ref,
+    PostModel post,
+  ) {
+    final controller = TextEditingController(text: post.content);
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Edit Post'),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 8,
+            autofocus: true,
+            onChanged: (_) => setDialogState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Update your post',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () async {
+                      final newContent = controller.text.trim();
+                      Navigator.pop(ctx);
+                      try {
+                        await ref.read(postRepositoryProvider).updatePost(
+                          post.id,
+                          {'content': newContent},
+                        );
+                        ref.read(feedProvider.notifier).refresh();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Post updated')),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Update failed: $e')),
+                          );
+                        }
+                      }
+                    },
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -190,13 +248,10 @@ class FeedScreen extends ConsumerWidget {
                     onProfileTap: () => context.push('/profile/${post.userId}'),
                     onCommentTap: () =>
                         context.push('/post/${post.id}?focus=comments'),
-                    onRepostTap: () =>
-                        context.push('/create-post?repostId=${post.id}'),
-                    onShareTap: () => _sharePost(context, post.id),
                     onMenuTap: isOwn
                         ? () {
                             HapticFeedback.selectionClick();
-                            _showPostOptions(context, ref, post.id);
+                            _showPostOptions(context, ref, post);
                           }
                         : () => _showReportMenu(context, ref, post.id),
                   );

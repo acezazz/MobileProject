@@ -29,7 +29,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
     ref.invalidate(userPostsProvider(widget.userId));
   }
 
-  void _showPostOptions(BuildContext context, String postId) {
+  void _showPostOptions(BuildContext context, PostModel post) {
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -37,12 +37,21 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit Post'),
+              subtitle: const Text('Update your post content'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _showEditPostDialog(context, post);
+              },
+            ),
+            ListTile(
               leading: const Icon(Icons.archive_outlined),
               title: const Text('Archive Post'),
               subtitle: const Text('Hide from feed. You can unarchive later.'),
               onTap: () async {
                 Navigator.pop(ctx);
-                await ref.read(postRepositoryProvider).archivePost(postId);
+                await ref.read(postRepositoryProvider).archivePost(post.id);
                 _refreshProfilePosts();
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -60,8 +69,64 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
               subtitle: const Text('Permanently delete this post'),
               onTap: () {
                 Navigator.pop(ctx);
-                _confirmDelete(context, postId);
+                _confirmDelete(context, post.id);
               },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showEditPostDialog(BuildContext context, PostModel post) {
+    final controller = TextEditingController(text: post.content);
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Edit Post'),
+          content: TextField(
+            controller: controller,
+            minLines: 3,
+            maxLines: 8,
+            autofocus: true,
+            onChanged: (_) => setDialogState(() {}),
+            decoration: const InputDecoration(
+              hintText: 'Update your post',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () async {
+                      final newContent = controller.text.trim();
+                      Navigator.pop(ctx);
+                      try {
+                        await ref.read(postRepositoryProvider).updatePost(
+                          post.id,
+                          {'content': newContent},
+                        );
+                        _refreshProfilePosts();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Post updated')),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Update failed: $e')),
+                          );
+                        }
+                      }
+                    },
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -168,12 +233,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
       appBar: AppBar(
         title: const Text('Profile'),
         actions: [
-          if (isOwnProfile)
+          if (isOwnProfile) ...[
+            IconButton(
+              onPressed: () => context.push('/my-archives'),
+              icon: const Icon(Icons.archive_outlined),
+              tooltip: 'Archived posts',
+            ),
             IconButton(
               onPressed: () => context.push('/settings'),
               icon: const Icon(Icons.settings_outlined),
-            )
-          else
+            ),
+          ] else
             IconButton(
               onPressed: () => context.push('/report/user/${widget.userId}'),
               icon: const Icon(Icons.more_horiz),
@@ -361,7 +431,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                             onMenuTap: isOwnPost
                                 ? () {
                                     HapticFeedback.selectionClick();
-                                    _showPostOptions(context, post.id);
+                                    _showPostOptions(context, post);
                                   }
                                 : () => _showReportMenu(context, post.id),
                           );

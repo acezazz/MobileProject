@@ -7,6 +7,7 @@ class FirestoreConstants {
   static const String followersCollection = 'followers';
   static const String reportsCollection = 'reports';
   static const String chatsCollection = 'chats';
+  static const String moderationAuditLogsCollection = 'moderation_audit_logs';
 
   // Subcollection names
   static const String commentsSubcollection = 'comments';

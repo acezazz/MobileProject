@@ -1,8 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../core/utils/role_utils.dart';
 import '../models/report_model.dart';
+import '../screens/admin/admin_dashboard_screen.dart';
+import '../screens/admin/admin_login_screen.dart';
+import '../screens/admin/admin_archives_screen.dart';
+import '../screens/admin/admin_posts_screen.dart';
+import '../screens/admin/admin_reports_screen.dart';
+import '../screens/admin/admin_users_screen.dart';
 import '../screens/auth/login_screen.dart';
 import '../screens/auth/register_screen.dart';
+import '../screens/auth/suspended_account_screen.dart';
 import '../screens/chat/chat_screen.dart';
 import '../screens/chat/chats_list_screen.dart';
 import '../screens/chat/new_chat_screen.dart';
@@ -13,6 +21,7 @@ import '../screens/landing/guest_landing_screen.dart';
 import '../screens/profile/edit_profile_screen.dart';
 import '../screens/profile/followers_screen.dart';
 import '../screens/profile/following_screen.dart';
+import '../screens/profile/my_archived_posts_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/report/report_screen.dart';
 import '../screens/settings/settings_screen.dart';
@@ -24,13 +33,20 @@ String? resolveAppRedirect({
   required bool isLoadingAuth,
   required String matchedLocation,
   required Uri uri,
+  String? currentUserRole,
+  bool isSuspended = false,
+  bool isLoadingProfile = false,
 }) {
   final isSplashRoute = matchedLocation == '/splash';
   final isGuestLandingRoute = matchedLocation == '/landing';
   final isPublicBrowseRoute = matchedLocation == '/';
   final isPostDetailRoute = matchedLocation.startsWith('/post/');
+  final isAdminLoginRoute = matchedLocation == '/admin-login';
+  final isSuspendedRoute = matchedLocation == '/suspended';
   final isAuthRoute =
       matchedLocation == '/login' || matchedLocation == '/register';
+  final isAdminRoute =
+      matchedLocation == '/admin' || matchedLocation.startsWith('/admin/');
 
   if (isSplashRoute) {
     return null;
@@ -40,17 +56,53 @@ String? resolveAppRedirect({
     return null;
   }
 
+  if (isLoggedIn && isLoadingProfile) {
+    return null;
+  }
+
+  if (isLoggedIn && isSuspended) {
+    final allowedSuspendedLocation =
+        isSuspendedRoute || isAuthRoute || isSplashRoute;
+    if (!allowedSuspendedLocation) {
+      return '/suspended';
+    }
+  }
+
   if (!isLoggedIn) {
     final isGuestAllowed =
         isGuestLandingRoute ||
         isPublicBrowseRoute ||
         isPostDetailRoute ||
+        isSuspendedRoute ||
+        isAdminLoginRoute ||
         isAuthRoute ||
         isSplashRoute;
     if (!isGuestAllowed) {
       final from = Uri.encodeComponent(uri.toString());
       return '/login?from=$from';
     }
+  }
+
+  if (isLoggedIn && !isSuspended && isSuspendedRoute) {
+    return '/';
+  }
+
+  final isAdminUser = isAdminOrHigher(currentUserRole);
+
+  if (isLoggedIn && isAdminUser) {
+    final isAllowedAdminLocation =
+        isAdminRoute || isAdminLoginRoute || isSplashRoute || isPostDetailRoute;
+    if (!isAllowedAdminLocation) {
+      return '/admin';
+    }
+  }
+
+  if (isLoggedIn && isAdminRoute && !isAdminOrHigher(currentUserRole)) {
+    return '/';
+  }
+
+  if (isLoggedIn && isAdminLoginRoute) {
+    return isAdminOrHigher(currentUserRole) ? '/admin' : '/';
   }
 
   if (isLoggedIn && (isAuthRoute || isGuestLandingRoute)) {
@@ -62,6 +114,9 @@ String? resolveAppRedirect({
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authState = ref.watch(authStateProvider);
+  final profileState = ref.watch(currentUserProfileProvider);
+  final currentRole = ref.watch(currentUserRoleProvider);
+  final isSuspended = ref.watch(currentUserSuspendedProvider);
 
   return GoRouter(
     initialLocation: '/splash',
@@ -71,6 +126,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         isLoadingAuth: authState.isLoading,
         matchedLocation: state.matchedLocation,
         uri: state.uri,
+        currentUserRole: currentRole,
+        isSuspended: isSuspended,
+        isLoadingProfile: profileState.isLoading,
       );
     },
     routes: [
@@ -89,6 +147,14 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/register',
         builder: (context, state) => const RegisterScreen(),
+      ),
+      GoRoute(
+        path: '/admin-login',
+        builder: (context, state) => const AdminLoginScreen(),
+      ),
+      GoRoute(
+        path: '/suspended',
+        builder: (context, state) => const SuspendedAccountScreen(),
       ),
 
       // Home (tab navigation)
@@ -117,6 +183,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/edit-profile',
         builder: (context, state) => const EditProfileScreen(),
+      ),
+      GoRoute(
+        path: '/my-archives',
+        builder: (context, state) => const MyArchivedPostsScreen(),
       ),
       GoRoute(
         path: '/followers/:userId',
@@ -150,6 +220,28 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+
+      // Admin routes
+      GoRoute(
+        path: '/admin',
+        builder: (context, state) => const AdminDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/admin/reports',
+        builder: (context, state) => const AdminReportsScreen(),
+      ),
+      GoRoute(
+        path: '/admin/users',
+        builder: (context, state) => const AdminUsersScreen(),
+      ),
+      GoRoute(
+        path: '/admin/posts',
+        builder: (context, state) => const AdminPostsScreen(),
+      ),
+      GoRoute(
+        path: '/admin/archives',
+        builder: (context, state) => const AdminArchivesScreen(),
       ),
 
       // Report routes

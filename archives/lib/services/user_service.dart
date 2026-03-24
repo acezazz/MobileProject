@@ -56,6 +56,42 @@ class UserService {
     await _usersRef.doc(uid).update(data);
   }
 
+  Future<void> suspendUser({
+    required String userId,
+    required String adminId,
+    required String reason,
+  }) async {
+    await _usersRef.doc(userId).update({
+      'status': 'suspended',
+      'suspendedAt': Timestamp.fromDate(DateTime.now()),
+      'suspensionReason': reason,
+      'updatedByAdminId': adminId,
+    });
+  }
+
+  Future<void> unsuspendUser({
+    required String userId,
+    required String adminId,
+  }) async {
+    await _usersRef.doc(userId).update({
+      'status': 'active',
+      'suspendedAt': null,
+      'suspensionReason': null,
+      'updatedByAdminId': adminId,
+    });
+  }
+
+  Future<void> setUserRole({
+    required String userId,
+    required String role,
+    required String adminId,
+  }) async {
+    await _usersRef.doc(userId).update({
+      'role': role,
+      'updatedByAdminId': adminId,
+    });
+  }
+
   Future<bool> isUsernameAvailable(String username) async {
     final query = await _usersRef
         .where('username', isEqualTo: username.toLowerCase())
@@ -81,6 +117,20 @@ class UserService {
   Future<List<UserModel>> getTopUsersByFollowers({int limit = 30}) async {
     final snapshot = await _usersRef
         .orderBy('followersCount', descending: true)
+        .limit(limit)
+        .get();
+
+    return snapshot.docs
+        .map(
+          (doc) =>
+              UserModel.fromMap(doc.data() as Map<String, dynamic>, doc.id),
+        )
+        .toList();
+  }
+
+  Future<List<UserModel>> getRecentUsers({int limit = 50}) async {
+    final snapshot = await _usersRef
+        .orderBy('createdAt', descending: true)
         .limit(limit)
         .get();
 

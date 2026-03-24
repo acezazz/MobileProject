@@ -5,10 +5,22 @@ class UserModel {
   final String name;
   final String username;
   final String email;
+  final DateTime? birthDate;
+  final String gender;
   final String bio;
   final String profilePhoto;
   final bool isPrivate;
   final String status; // 'active', 'deactivated', 'suspended'
+  final String role; // 'user', 'admin'
+  final bool isSuspended;
+  final String suspensionType; // 'none', 'temporary', 'permanent'
+  final DateTime? suspensionUntil;
+  final int warningsCount;
+  final int strikesCount;
+  final DateTime? suspendedAt;
+  final String? suspensionReason;
+  final String? updatedByAdminId;
+  final DateTime? updatedAt;
   final DateTime createdAt;
   final int followersCount;
   final int followingCount;
@@ -18,10 +30,22 @@ class UserModel {
     required this.name,
     required this.username,
     required this.email,
+    this.birthDate,
+    this.gender = '',
     this.bio = '',
     this.profilePhoto = '',
     this.isPrivate = false,
     this.status = 'active',
+    this.role = 'user',
+    this.isSuspended = false,
+    this.suspensionType = 'none',
+    this.suspensionUntil,
+    this.warningsCount = 0,
+    this.strikesCount = 0,
+    this.suspendedAt,
+    this.suspensionReason,
+    this.updatedByAdminId,
+    this.updatedAt,
     required this.createdAt,
     this.followersCount = 0,
     this.followingCount = 0,
@@ -41,6 +65,15 @@ class UserModel {
       return raw == 'true' || raw == '1' || raw == 'yes';
     }
 
+    String normalizeSuspensionType(String? rawType, bool suspended) {
+      if (rawType == 'temporary' ||
+          rawType == 'permanent' ||
+          rawType == 'none') {
+        return rawType!;
+      }
+      return suspended ? 'permanent' : 'none';
+    }
+
     DateTime asDateTime(dynamic value) {
       if (value is Timestamp) return value.toDate();
       if (value is DateTime) return value;
@@ -53,18 +86,52 @@ class UserModel {
     }
 
     final uidFromData = asString(map['uid']).trim();
+    final bool isSuspended = map.containsKey('isSuspended')
+        ? asBool(map['isSuspended'])
+        : asString(map['status']).toLowerCase() == 'suspended';
+    final String suspensionType = normalizeSuspensionType(
+      asString(map['suspensionType']).isEmpty
+          ? null
+          : asString(map['suspensionType']),
+      isSuspended,
+    );
+    final DateTime? suspensionUntil = map['suspensionUntil'] == null
+        ? null
+        : asDateTime(map['suspensionUntil']);
+    final int warningsCount = asInt(map['warningsCount']);
+    final int strikesCount = asInt(map['strikesCount']);
+
+    final String statusFromMap = asString(map['status']).isEmpty
+        ? (isSuspended ? 'suspended' : 'active')
+        : asString(map['status']);
 
     return UserModel(
       uid: uidFromData.isNotEmpty ? uidFromData : docId,
       name: asString(map['name']),
       username: asString(map['username']),
       email: asString(map['email']),
+      birthDate: map['birthDate'] == null ? null : asDateTime(map['birthDate']),
+      gender: asString(map['gender']),
       bio: asString(map['bio']),
       profilePhoto: asString(map['profilePhoto']),
+      role: asString(map['role']).isEmpty ? 'user' : asString(map['role']),
       isPrivate: asBool(map['isPrivate']),
-      status: asString(map['status']).isEmpty
-          ? 'active'
-          : asString(map['status']),
+      status: statusFromMap,
+      isSuspended: isSuspended,
+      suspensionType: suspensionType,
+      suspensionUntil: suspensionUntil,
+      warningsCount: warningsCount,
+      strikesCount: strikesCount,
+      suspendedAt: map['suspendedAt'] == null
+          ? null
+          : asDateTime(map['suspendedAt']),
+      suspensionReason: asString(map['suspensionReason']).isEmpty
+          ? null
+          : asString(map['suspensionReason']),
+      updatedByAdminId: asString(map['updatedByAdminId']).isEmpty
+          ? null
+          : asString(map['updatedByAdminId']),
+      updatedAt: map['updatedAt'] == null ? null : asDateTime(map['updatedAt']),
       createdAt: asDateTime(map['createdAt']),
       followersCount: asInt(map['followersCount']),
       followingCount: asInt(map['followingCount']),
@@ -77,10 +144,26 @@ class UserModel {
       'name': name,
       'username': username,
       'email': email,
+      'birthDate': birthDate == null ? null : Timestamp.fromDate(birthDate!),
+      'gender': gender,
       'bio': bio,
       'profilePhoto': profilePhoto,
       'isPrivate': isPrivate,
       'status': status,
+      'role': role,
+      'isSuspended': isSuspended,
+      'suspensionType': suspensionType,
+      'suspensionUntil': suspensionUntil == null
+          ? null
+          : Timestamp.fromDate(suspensionUntil!),
+      'warningsCount': warningsCount,
+      'strikesCount': strikesCount,
+      'suspendedAt': suspendedAt == null
+          ? null
+          : Timestamp.fromDate(suspendedAt!),
+      'suspensionReason': suspensionReason,
+      'updatedByAdminId': updatedByAdminId,
+      'updatedAt': updatedAt == null ? null : Timestamp.fromDate(updatedAt!),
       'createdAt': Timestamp.fromDate(createdAt),
       'followersCount': followersCount,
       'followingCount': followingCount,
@@ -91,22 +174,46 @@ class UserModel {
     String? name,
     String? username,
     String? email,
+    DateTime? birthDate,
+    String? gender,
     String? bio,
     String? profilePhoto,
     bool? isPrivate,
     String? status,
+    bool? isSuspended,
+    String? suspensionType,
+    DateTime? suspensionUntil,
+    int? warningsCount,
+    int? strikesCount,
     int? followersCount,
     int? followingCount,
+    String? role,
+    DateTime? suspendedAt,
+    String? suspensionReason,
+    String? updatedByAdminId,
+    DateTime? updatedAt,
   }) {
     return UserModel(
       uid: uid,
       name: name ?? this.name,
       username: username ?? this.username,
       email: email ?? this.email,
+      birthDate: birthDate ?? this.birthDate,
+      gender: gender ?? this.gender,
       bio: bio ?? this.bio,
       profilePhoto: profilePhoto ?? this.profilePhoto,
+      role: role ?? this.role,
       isPrivate: isPrivate ?? this.isPrivate,
       status: status ?? this.status,
+      isSuspended: isSuspended ?? this.isSuspended,
+      suspensionType: suspensionType ?? this.suspensionType,
+      suspensionUntil: suspensionUntil ?? this.suspensionUntil,
+      warningsCount: warningsCount ?? this.warningsCount,
+      strikesCount: strikesCount ?? this.strikesCount,
+      suspendedAt: suspendedAt ?? this.suspendedAt,
+      suspensionReason: suspensionReason ?? this.suspensionReason,
+      updatedByAdminId: updatedByAdminId ?? this.updatedByAdminId,
+      updatedAt: updatedAt ?? this.updatedAt,
       createdAt: createdAt,
       followersCount: followersCount ?? this.followersCount,
       followingCount: followingCount ?? this.followingCount,

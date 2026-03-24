@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utils/role_utils.dart';
 import '../../core/theme/app_colors.dart';
 import '../../providers/auth_providers.dart';
 
@@ -9,7 +10,8 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profileAsync = ref.watch(currentUserProfileProvider);
+    final role = ref.watch(currentUserRoleProvider);
+    final showAdmin = isAdminOrHigher(role);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -33,27 +35,6 @@ class SettingsScreen extends ConsumerWidget {
             ),
             onTap: () => context.push('/edit-profile'),
           ),
-          ListTile(
-            leading: const Icon(
-              Icons.lock_outline,
-              color: AppColors.textSecondary,
-            ),
-            title: const Text(
-              'Privacy',
-              style: TextStyle(color: AppColors.textPrimary),
-            ),
-            subtitle: profileAsync.whenOrNull(
-              data: (user) => Text(
-                user?.isPrivate == true ? 'Private Account' : 'Public Account',
-                style: const TextStyle(color: AppColors.textHint, fontSize: 13),
-              ),
-            ),
-            trailing: const Icon(
-              Icons.chevron_right,
-              color: AppColors.textHint,
-            ),
-            onTap: () => context.push('/edit-profile'),
-          ),
           const Divider(color: AppColors.divider),
 
           // About Section
@@ -70,6 +51,26 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Divider(color: AppColors.divider),
+
+          if (showAdmin) ...[
+            const _SectionHeader(title: 'Administration'),
+            ListTile(
+              leading: const Icon(
+                Icons.admin_panel_settings_outlined,
+                color: AppColors.textSecondary,
+              ),
+              title: const Text(
+                'Admin Panel',
+                style: TextStyle(color: AppColors.textPrimary),
+              ),
+              trailing: const Icon(
+                Icons.chevron_right,
+                color: AppColors.textHint,
+              ),
+              onTap: () => context.push('/admin'),
+            ),
+            const Divider(color: AppColors.divider),
+          ],
 
           // Danger Zone
           const _SectionHeader(title: 'Session'),

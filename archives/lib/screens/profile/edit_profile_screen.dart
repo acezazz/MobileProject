@@ -23,10 +23,20 @@ class EditProfileScreen extends ConsumerStatefulWidget {
 class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
+  final _birthDateController = TextEditingController();
   final _bioController = TextEditingController();
+  DateTime? _selectedBirthDate;
+  String? _selectedGender;
   bool _isPrivate = false;
   bool _isLoading = false;
   bool _initialized = false;
+
+  static const List<String> _genderOptions = [
+    'Male',
+    'Female',
+    'Non-binary',
+    'Prefer not to say',
+  ];
 
   Uint8List? _selectedImageBytes;
   String? _currentPhotoUrl;
@@ -34,8 +44,40 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
   @override
   void dispose() {
     _nameController.dispose();
+    _birthDateController.dispose();
     _bioController.dispose();
     super.dispose();
+  }
+
+  String _formatBirthDate(DateTime date) {
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '${date.year}-$month-$day';
+  }
+
+  Future<void> _pickBirthDate() async {
+    final today = DateTime.now();
+    final latestAllowedDate = DateTime(today.year - 13, today.month, today.day);
+    final initialDate =
+        _selectedBirthDate == null ||
+            _selectedBirthDate!.isAfter(latestAllowedDate)
+        ? latestAllowedDate
+        : _selectedBirthDate!;
+
+    final selectedDate = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(1900),
+      lastDate: latestAllowedDate,
+      helpText: 'Select birthdate',
+    );
+
+    if (selectedDate == null) return;
+
+    setState(() {
+      _selectedBirthDate = selectedDate;
+      _birthDateController.text = _formatBirthDate(selectedDate);
+    });
   }
 
   Future<void> _pickProfilePhoto() async {
@@ -77,6 +119,8 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
       await ref.read(userRepositoryProvider).updateProfile(uid, {
         'name': _nameController.text.trim(),
+        'birthDate': _selectedBirthDate,
+        'gender': _selectedGender ?? '',
         'bio': _bioController.text.trim(),
         'profilePhoto': photoUrl ?? '',
         'isPrivate': _isPrivate,
@@ -117,6 +161,11 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
 
           if (!_initialized) {
             _nameController.text = user.name;
+            _selectedBirthDate = user.birthDate;
+            _birthDateController.text = user.birthDate == null
+                ? ''
+                : _formatBirthDate(user.birthDate!);
+            _selectedGender = user.gender.isEmpty ? null : user.gender;
             _bioController.text = user.bio;
             _currentPhotoUrl = user.profilePhoto;
             _isPrivate = user.isPrivate;
@@ -183,6 +232,64 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     validator: Validators.name,
                   ),
                   const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _birthDateController,
+                    readOnly: true,
+                    onTap: _pickBirthDate,
+                    textInputAction: TextInputAction.next,
+                    style: const TextStyle(color: AppColors.inkDark),
+                    decoration: const InputDecoration(
+                      hintText: 'Birthdate',
+                      fillColor: AppColors.accentBeige,
+                      hintStyle: TextStyle(color: AppColors.inkDark),
+                      prefixIcon: Icon(
+                        Icons.cake_outlined,
+                        color: AppColors.inkDark,
+                        size: 18,
+                      ),
+                      suffixIcon: Icon(
+                        Icons.calendar_today,
+                        color: AppColors.inkDark,
+                        size: 18,
+                      ),
+                    ),
+                    validator: (_) => Validators.birthDate(_selectedBirthDate),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedGender,
+                    isExpanded: true,
+                    style: const TextStyle(color: AppColors.inkDark),
+                    dropdownColor: AppColors.accentBeige,
+                    decoration: const InputDecoration(
+                      hintText: 'Gender',
+                      fillColor: AppColors.accentBeige,
+                      hintStyle: TextStyle(color: AppColors.inkDark),
+                      prefixIcon: Icon(
+                        Icons.wc_outlined,
+                        color: AppColors.inkDark,
+                        size: 18,
+                      ),
+                    ),
+                    items: _genderOptions
+                        .map(
+                          (gender) => DropdownMenuItem<String>(
+                            value: gender,
+                            child: Text(
+                              gender,
+                              style: const TextStyle(color: AppColors.inkDark),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedGender = value;
+                      });
+                    },
+                    validator: Validators.gender,
+                  ),
+                  const SizedBox(height: 16),
                   CustomTextField(
                     controller: _bioController,
                     hintText: 'Bio',
@@ -207,33 +314,7 @@ class _EditProfileScreenState extends ConsumerState<EditProfileScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Private toggle
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: SwitchListTile(
-                      title: const Text(
-                        'Private Account',
-                        style: TextStyle(color: AppColors.textPrimary),
-                      ),
-                      subtitle: const Text(
-                        'Only followers can see your posts',
-                        style: TextStyle(
-                          color: AppColors.textHint,
-                          fontSize: 13,
-                        ),
-                      ),
-                      value: _isPrivate,
-                      onChanged: (val) => setState(() => _isPrivate = val),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
+                  // ...removed Private Account toggle...
                   const SizedBox(height: 32),
                   CustomButton(
                     text: _isLoading ? 'Saving...' : 'Save',

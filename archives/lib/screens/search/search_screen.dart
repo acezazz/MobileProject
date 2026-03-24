@@ -109,7 +109,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: Text('Could not load users: $e'),
       ),
       data: (users) {
-        if (users.isEmpty) {
+        final visibleUsers = users
+            .where((user) => user.role.toLowerCase() != 'admin')
+            .toList();
+
+        if (visibleUsers.isEmpty) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 16),
             child: Text(emptyMessage),
@@ -117,7 +121,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         }
 
         return Column(
-          children: users
+          children: visibleUsers
               .map(
                 (user) => Card(
                   margin: const EdgeInsets.symmetric(vertical: 4),

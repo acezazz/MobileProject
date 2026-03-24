@@ -1,7 +1,33 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const crypto = require("crypto");
+const { buildAdminCommandHandlers } = require("./admin_commands");
 admin.initializeApp();
+
+const adminCommandHandlers = buildAdminCommandHandlers({
+  getDb: () => admin.firestore(),
+  HttpsError: functions.https.HttpsError,
+});
+
+exports.createReport = functions.https.onCall((data, context) =>
+  adminCommandHandlers.createReport(data, context)
+);
+
+exports.reviewReport = functions.https.onCall((data, context) =>
+  adminCommandHandlers.reviewReport(data, context)
+);
+
+exports.suspendUser = functions.https.onCall((data, context) =>
+  adminCommandHandlers.suspendUser(data, context)
+);
+
+exports.unsuspendUser = functions.https.onCall((data, context) =>
+  adminCommandHandlers.unsuspendUser(data, context)
+);
+
+exports.setUserRole = functions.https.onCall((data, context) =>
+  adminCommandHandlers.setUserRole(data, context)
+);
 
 // 1. Sync denormalized user data (name, username, photo) to posts and comments
 exports.onUserUpdate = functions.firestore

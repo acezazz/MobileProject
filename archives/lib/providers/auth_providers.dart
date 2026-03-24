@@ -35,6 +35,15 @@ final currentUserProfileProvider = FutureProvider<UserModel?>((ref) async {
   );
 });
 
+final currentUserRoleProvider = Provider<String?>((ref) {
+  return ref.watch(currentUserProfileProvider).valueOrNull?.role;
+});
+
+final currentUserSuspendedProvider = Provider<bool>((ref) {
+  final user = ref.watch(currentUserProfileProvider).valueOrNull;
+  return user?.isSuspended ?? false;
+});
+
 // Auth state notifier for login/register/logout actions
 final authNotifierProvider =
     StateNotifierProvider<AuthNotifier, AsyncValue<UserModel?>>((ref) {
@@ -47,18 +56,20 @@ class AuthNotifier extends StateNotifier<AsyncValue<UserModel?>> {
   AuthNotifier(this._repository) : super(const AsyncValue.data(null));
 
   Future<void> register({
-    required String name,
     required String username,
     required String email,
     required String password,
+    required DateTime birthDate,
+    required String gender,
   }) async {
     state = const AsyncValue.loading();
     try {
       final user = await _repository.register(
-        name: name,
         username: username,
         email: email,
         password: password,
+        birthDate: birthDate,
+        gender: gender,
       );
       state = AsyncValue.data(user);
     } catch (e, st) {

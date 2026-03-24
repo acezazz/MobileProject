@@ -19,9 +19,8 @@ class PostCard extends ConsumerWidget {
   final VoidCallback? onProfileTap;
   final VoidCallback? onMenuTap;
   final VoidCallback? onCommentTap;
-  final VoidCallback? onRepostTap;
-  final VoidCallback? onShareTap;
   final String? currentUserIdOverride;
+  final bool hideLikeAction;
   final bool hideCommentAction;
   final bool preferUsernameInHeader;
 
@@ -32,9 +31,8 @@ class PostCard extends ConsumerWidget {
     this.onProfileTap,
     this.onMenuTap,
     this.onCommentTap,
-    this.onRepostTap,
-    this.onShareTap,
     this.currentUserIdOverride,
+    this.hideLikeAction = false,
     this.hideCommentAction = false,
     this.preferUsernameInHeader = false,
   });
@@ -64,6 +62,21 @@ class PostCard extends ConsumerWidget {
         ? 'Public post'
         : 'Followers only';
 
+    Future<void> handleProfileTap() async {
+      if (onProfileTap == null) return;
+
+      if (uid.isEmpty) {
+        final canOpen = await ensureAuthenticatedForPath(
+          context: context,
+          ref: ref,
+          destinationPath: '/profile/${livePost.userId}',
+        );
+        if (!canOpen) return;
+      }
+
+      onProfileTap?.call();
+    }
+
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
@@ -78,7 +91,7 @@ class PostCard extends ConsumerWidget {
                 children: [
                   InkWell(
                     borderRadius: BorderRadius.circular(22),
-                    onTap: onProfileTap,
+                    onTap: handleProfileTap,
                     child: AvatarWidget(
                       imageUrl: authorPhoto,
                       name: authorName,
@@ -89,7 +102,7 @@ class PostCard extends ConsumerWidget {
                   Expanded(
                     child: InkWell(
                       borderRadius: BorderRadius.circular(10),
-                      onTap: onProfileTap,
+                      onTap: handleProfileTap,
                       child: preferUsernameInHeader
                           ? Text(
                               '@$authorUsername',
@@ -143,7 +156,11 @@ class PostCard extends ConsumerWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              _LikeableContent(post: livePost, onTap: onTap),
+              _LikeableContent(
+                post: livePost,
+                onTap: onTap,
+                disableDoubleTapLike: hideLikeAction,
+              ),
               if (mediaUrls.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 Hero(
@@ -159,8 +176,7 @@ class PostCard extends ConsumerWidget {
                 post: livePost,
                 currentUserId: uid,
                 onCommentTap: onCommentTap,
-                onRepostTap: onRepostTap,
-                onShareTap: onShareTap,
+                hideLikeAction: hideLikeAction,
                 hideCommentAction: hideCommentAction,
               ),
             ],
@@ -306,8 +322,13 @@ class _PostMediaGalleryState extends State<_PostMediaGallery> {
 class _LikeableContent extends ConsumerStatefulWidget {
   final PostModel post;
   final VoidCallback? onTap;
+  final bool disableDoubleTapLike;
 
-  const _LikeableContent({required this.post, required this.onTap});
+  const _LikeableContent({
+    required this.post,
+    required this.onTap,
+    this.disableDoubleTapLike = false,
+  });
 
   @override
   ConsumerState<_LikeableContent> createState() => _LikeableContentState();
@@ -317,6 +338,8 @@ class _LikeableContentState extends ConsumerState<_LikeableContent> {
   bool _heartVisible = false;
 
   Future<void> _doubleTapLike() async {
+    if (widget.disableDoubleTapLike) return;
+
     final currentUser = ref.read(authStateProvider).valueOrNull;
     if (currentUser == null) return;
 
@@ -342,7 +365,7 @@ class _LikeableContentState extends ConsumerState<_LikeableContent> {
   Widget build(BuildContext context) {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onDoubleTap: _doubleTapLike,
+      onDoubleTap: widget.disableDoubleTapLike ? null : _doubleTapLike,
       onTap: widget.onTap,
       child: Stack(
         alignment: Alignment.center,
@@ -373,16 +396,14 @@ class _ActionRow extends ConsumerStatefulWidget {
   final PostModel post;
   final String currentUserId;
   final VoidCallback? onCommentTap;
-  final VoidCallback? onRepostTap;
-  final VoidCallback? onShareTap;
+  final bool hideLikeAction;
   final bool hideCommentAction;
 
   const _ActionRow({
     required this.post,
     required this.currentUserId,
     this.onCommentTap,
-    this.onRepostTap,
-    this.onShareTap,
+    this.hideLikeAction = false,
     this.hideCommentAction = false,
   });
 
@@ -445,6 +466,10 @@ class _ActionRowState extends ConsumerState<_ActionRow> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.hideLikeAction && widget.hideCommentAction) {
+      return const SizedBox.shrink();
+    }
+
     final likeStatus = widget.currentUserId.isEmpty
         ? const AsyncData(false)
         : ref.watch(
@@ -476,26 +501,28 @@ class _ActionRowState extends ConsumerState<_ActionRow> {
 
     return Row(
       children: [
-        IconButton(
-          onPressed: _isLikeBusy
-              ? null
-              : () async {
-                  if (widget.currentUserId.isEmpty) {
-                    await _ensureAuth(InteractionAction.like);
-                    return;
-                  }
-                  await _toggleLike(isLiked);
-                },
-          visualDensity: VisualDensity.compact,
-          icon: Icon(
-            isLiked ? Icons.favorite : Icons.favorite_border,
-            color: isLiked
-                ? AppColors.likeRed
-                : Theme.of(context).colorScheme.onSurfaceVariant,
+        if (!widget.hideLikeAction)
+          IconButton(
+            onPressed: _isLikeBusy
+                ? null
+                : () async {
+                    if (widget.currentUserId.isEmpty) {
+                      await _ensureAuth(InteractionAction.like);
+                      return;
+                    }
+                    await _toggleLike(isLiked);
+                  },
+            visualDensity: VisualDensity.compact,
+            icon: Icon(
+              isLiked ? Icons.favorite : Icons.favorite_border,
+              color: isLiked
+                  ? AppColors.likeRed
+                  : Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
-        ),
-        if (displayLikeCount > 0) Text('$displayLikeCount', style: labelStyle),
-        const SizedBox(width: 8),
+        if (!widget.hideLikeAction && displayLikeCount > 0)
+          Text('$displayLikeCount', style: labelStyle),
+        if (!widget.hideLikeAction) const SizedBox(width: 8),
         if (!widget.hideCommentAction)
           IconButton(
             onPressed: () async {
@@ -510,31 +537,6 @@ class _ActionRowState extends ConsumerState<_ActionRow> {
           ),
         if (liveCommentsCount > 0)
           Text('$liveCommentsCount', style: labelStyle),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: () async {
-            if (widget.currentUserId.isEmpty) {
-              final allowed = await _ensureAuth(InteractionAction.repost);
-              if (!allowed) return;
-            }
-            HapticFeedback.selectionClick();
-            widget.onRepostTap?.call();
-          },
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.repeat),
-        ),
-        const SizedBox(width: 8),
-        IconButton(
-          onPressed: () async {
-            if (widget.currentUserId.isEmpty) {
-              final allowed = await _ensureAuth(InteractionAction.share);
-              if (!allowed) return;
-            }
-            widget.onShareTap?.call();
-          },
-          visualDensity: VisualDensity.compact,
-          icon: const Icon(Icons.send_outlined),
-        ),
       ],
     );
   }

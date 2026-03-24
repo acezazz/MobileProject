@@ -85,6 +85,11 @@ final userPostsProvider = FutureProvider.family<List<PostModel>, String>((
   return ref.read(postRepositoryProvider).getUserPosts(userId: userId);
 });
 
+final userArchivedPostsProvider =
+    FutureProvider.family<List<PostModel>, String>((ref, userId) {
+      return ref.read(postRepositoryProvider).getUserArchived(userId);
+    });
+
 // Single post stream
 final postStreamProvider = StreamProvider.family<PostModel?, String>((
   ref,

@@ -5,6 +5,7 @@ import '../../core/theme/app_colors.dart';
 import '../../models/report_model.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/report_providers.dart';
+import '../../services/admin_command_service.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
 
@@ -66,7 +67,25 @@ class _ReportScreenState extends ConsumerState<ReportScreen> {
         const SnackBar(content: Text('Report submitted. Thank you.')),
       );
       context.pop();
+      return;
     }
+
+    if (!mounted) return;
+    var message = 'Report submission failed.';
+    final submitState = ref.read(submitReportProvider);
+    submitState.whenOrNull(
+      error: (error, _) {
+        if (error is AdminCommandException) {
+          message = error.message;
+        } else {
+          message = 'Report failed: $error';
+        }
+      },
+    );
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override

@@ -16,10 +16,11 @@ class AuthRepository {
   User? get currentUser => _authService.currentUser;
 
   Future<UserModel> register({
-    required String name,
     required String username,
     required String email,
     required String password,
+    required DateTime birthDate,
+    required String gender,
   }) async {
     // Create Firebase Auth account first (so user is authenticated for Firestore rules)
     final credential = await _authService.registerWithEmail(
@@ -39,9 +40,11 @@ class AuthRepository {
       // Create Firestore user profile
       final user = UserModel(
         uid: credential.user!.uid,
-        name: name,
+        name: username,
         username: username.toLowerCase(),
         email: email,
+        birthDate: birthDate,
+        gender: gender,
         createdAt: DateTime.now(),
       );
       await _userService.createUserProfile(user);

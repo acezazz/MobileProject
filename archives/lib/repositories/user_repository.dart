@@ -24,8 +24,12 @@ class UserRepository {
   Future<void> updateProfile(String uid, Map<String, dynamic> data) =>
       _userService.updateUserProfile(uid, data);
 
-  Future<List<UserModel>> searchUsers(String query) =>
-      _userService.searchUsers(query);
+  Future<List<UserModel>> searchUsers(String query) => _userService
+      .searchUsers(query)
+      .then((users) => users.where((user) => user.role != 'admin').toList());
+
+  Future<List<UserModel>> getRecentUsers({int limit = 50}) =>
+      _userService.getRecentUsers(limit: limit);
 
   Future<List<UserModel>> getRecommendedUsers({
     required String currentUserId,
@@ -42,9 +46,77 @@ class UserRepository {
 
     return users
         .where((user) => user.uid != currentUserId)
+        .where((user) => user.role != 'admin')
         .where((user) => !excludeFollowed || !followedIds.contains(user.uid))
         .take(limit)
         .toList();
+  }
+
+  Future<Map<String, dynamic>> _loadModerationSnapshot(
+    String targetUserId,
+  ) async {
+    final doc = await _firestore
+        .collection(FirestoreConstants.usersCollection)
+        .doc(targetUserId)
+        .get();
+
+    if (!doc.exists) {
+      throw StateError('User not found');
+    }
+
+    return doc.data() ?? <String, dynamic>{};
+  }
+
+  Map<String, dynamic> _buildModerationPatch({
+    required Map<String, dynamic> current,
+    required String actorAdminId,
+    String? role,
+    bool? isSuspended,
+    String? suspensionType,
+    DateTime? suspensionUntil,
+    int? warningsCount,
+    int? strikesCount,
+  }) {
+    final currentIsSuspended =
+        current['isSuspended'] == true ||
+        (current['status']?.toString().toLowerCase() == 'suspended');
+
+    final normalizedSuspensionType =
+        suspensionType ??
+        (() {
+          final raw = current['suspensionType']?.toString();
+          if (raw == 'none' || raw == 'temporary' || raw == 'permanent') {
+            return raw;
+          }
+          return currentIsSuspended ? 'permanent' : 'none';
+        }());
+
+    final normalizedWarningsCount =
+        warningsCount ??
+        (current['warningsCount'] is int ? current['warningsCount'] as int : 0);
+    final normalizedStrikesCount =
+        strikesCount ??
+        (current['strikesCount'] is int ? current['strikesCount'] as int : 0);
+
+    final normalizedRole =
+        role ??
+        (current['role']?.toString().isNotEmpty == true
+            ? current['role'].toString()
+            : 'user');
+    final normalizedIsSuspended = isSuspended ?? currentIsSuspended;
+
+    return {
+      'role': normalizedRole,
+      'isSuspended': normalizedIsSuspended,
+      'suspensionType': normalizedSuspensionType,
+      'suspensionUntil': suspensionUntil == null
+          ? null
+          : Timestamp.fromDate(suspensionUntil),
+      'warningsCount': normalizedWarningsCount,
+      'strikesCount': normalizedStrikesCount,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'updatedByAdminId': actorAdminId,
+    };
   }
 
   // --- Follow System ---
@@ -132,4 +204,96 @@ class UserRepository {
 
   Stream<int> followingCountStream(String userId) =>
       _userService.followingCountStream(userId);
+
+  Future<void> suspendUser({
+    required String targetUserId,
+    required String actorAdminId,
+    required String reason,
+  }) async {
+    final current = await _loadModerationSnapshot(targetUserId);
+    final hasTemporaryUntil = current['suspensionUntil'] is Timestamp;
+
+    await _firestore
+        .collection(FirestoreConstants.usersCollection)
+        .doc(targetUserId)
+        .update(
+          _buildModerationPatch(
+            current: current,
+            actorAdminId: actorAdminId,
+            isSuspended: true,
+            suspensionType: hasTemporaryUntil ? 'temporary' : 'permanent',
+            suspensionUntil: hasTemporaryUntil
+                ? (current['suspensionUntil'] as Timestamp).toDate()
+                : null,
+          ),
+        );
+  }
+
+  Future<void> unsuspendUser({
+    required String targetUserId,
+    required String actorAdminId,
+  }) async {
+    final current = await _loadModerationSnapshot(targetUserId);
+
+    await _firestore
+        .collection(FirestoreConstants.usersCollection)
+        .doc(targetUserId)
+        .update(
+          _buildModerationPatch(
+            current: current,
+            actorAdminId: actorAdminId,
+            isSuspended: false,
+            suspensionType: 'none',
+            suspensionUntil: null,
+          ),
+        );
+  }
+
+  Future<void> setUserRole({
+    required String targetUserId,
+    required String role,
+    required String actorAdminId,
+  }) async {
+    if (targetUserId == actorAdminId) {
+      throw StateError('Admins cannot change their own role.');
+    }
+
+    final current = await _loadModerationSnapshot(targetUserId);
+
+    await _firestore
+        .collection(FirestoreConstants.usersCollection)
+        .doc(targetUserId)
+        .update(
+          _buildModerationPatch(
+            current: current,
+            actorAdminId: actorAdminId,
+            role: role,
+          ),
+        );
+  }
+
+  Future<void> updateAdminUserAccount({
+    required String targetUserId,
+    required String actorAdminId,
+    required bool isSuspended,
+    required String suspensionType,
+    DateTime? suspensionUntil,
+  }) async {
+    final current = await _loadModerationSnapshot(targetUserId);
+
+    await _firestore
+        .collection(FirestoreConstants.usersCollection)
+        .doc(targetUserId)
+        .update(
+          _buildModerationPatch(
+            current: current,
+            actorAdminId: actorAdminId,
+            isSuspended: isSuspended,
+            suspensionType: suspensionType,
+            suspensionUntil: suspensionType == 'temporary'
+                ? suspensionUntil
+                : null,
+          ),
+        );
+  }
 }

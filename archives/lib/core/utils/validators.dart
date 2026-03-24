@@ -1,6 +1,12 @@
 class Validators {
   Validators._();
 
+  static final DateTime _minimumAllowedBirthDate = DateTime(
+    DateTime.now().year - 13,
+    DateTime.now().month,
+    DateTime.now().day,
+  );
+
   static String? email(String? value) {
     if (value == null || value.trim().isEmpty) return 'Email is required';
     final emailRegex = RegExp(
@@ -37,6 +43,19 @@ class Validators {
   static String? name(String? value) {
     if (value == null || value.trim().isEmpty) return 'Name is required';
     if (value.trim().length < 2) return 'Name must be at least 2 characters';
+    return null;
+  }
+
+  static String? birthDate(DateTime? value) {
+    if (value == null) return 'Birthdate is required';
+    if (value.isAfter(_minimumAllowedBirthDate)) {
+      return 'You must be at least 13 years old';
+    }
+    return null;
+  }
+
+  static String? gender(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Gender is required';
     return null;
   }
 

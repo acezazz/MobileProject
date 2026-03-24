@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
 import '../../models/comment_model.dart';
+import '../../models/post_model.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/post_providers.dart';
+import '../../providers/user_providers.dart';
 import '../../widgets/common/avatar_widget.dart';
 import '../../widgets/common/branded_state_view.dart';
 import '../../widgets/post/post_card.dart';
@@ -78,8 +80,11 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isAdminView = ref.watch(isAdminOrHigherProvider);
     final postAsync = ref.watch(postStreamProvider(widget.postId));
-    final commentsAsync = ref.watch(commentsProvider(widget.postId));
+    final commentsAsync = isAdminView
+        ? const AsyncData<List<CommentModel>>([])
+        : ref.watch(commentsProvider(widget.postId));
 
     return Scaffold(
       appBar: AppBar(title: const Text('Post')),
@@ -87,7 +92,9 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => Center(child: Text('Error: $e')),
         data: (post) {
-          _focusCommentsSectionIfNeeded();
+          if (!isAdminView) {
+            _focusCommentsSectionIfNeeded();
+          }
 
           if (post == null) {
             return const BrandedStateView(
@@ -97,88 +104,128 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
             );
           }
 
+          final currentUser = ref.watch(authStateProvider).valueOrNull;
+          final currentUserId = currentUser?.uid ?? '';
+          final isOwner =
+              currentUserId.isNotEmpty && currentUserId == post.userId;
+          final isFollowingAuthor = isOwner
+              ? true
+              : (currentUserId.isEmpty
+                    ? false
+                    : (ref
+                              .watch(
+                                isFollowingProvider((
+                                  currentUserId: currentUserId,
+                                  targetUserId: post.userId,
+                                )),
+                              )
+                              .valueOrNull ??
+                          false));
+          final canViewPost =
+              isAdminView ||
+              post.privacy == PostPrivacy.public ||
+              isOwner ||
+              isFollowingAuthor;
+
+          if (!canViewPost) {
+            return const BrandedStateView(
+              icon: Icons.lock_outline,
+              title: 'Private post',
+              subtitle: 'Follow this account to view this post.',
+            );
+          }
+
           return Column(
             children: [
               Expanded(
                 child: ListView(
                   padding: const EdgeInsets.only(bottom: 8),
                   children: [
-                    PostCard(post: post, hideCommentAction: true),
-                    Padding(
-                      key: _commentsHeaderKey,
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-                      child: Text(
-                        'Comments',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w700),
-                      ),
+                    PostCard(
+                      post: post,
+                      hideLikeAction: isAdminView,
+                      hideCommentAction: true,
                     ),
-                    commentsAsync.when(
-                      loading: () => const Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Center(child: CircularProgressIndicator()),
+                    if (!isAdminView) ...[
+                      Padding(
+                        key: _commentsHeaderKey,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+                        child: Text(
+                          'Comments',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
                       ),
-                      error: (e, _) => Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Text('Error: $e'),
-                      ),
-                      data: (comments) {
-                        if (comments.isEmpty) {
-                          return const Padding(
-                            padding: EdgeInsets.only(top: 16),
-                            child: BrandedStateView(
-                              icon: Icons.forum_outlined,
-                              title: 'No comments yet',
-                              subtitle:
-                                  'Be the first to start the conversation.',
-                            ),
-                          );
-                        }
+                      commentsAsync.when(
+                        loading: () => const Padding(
+                          padding: EdgeInsets.all(24),
+                          child: Center(child: CircularProgressIndicator()),
+                        ),
+                        error: (e, _) => Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text('Error: $e'),
+                        ),
+                        data: (comments) {
+                          if (comments.isEmpty) {
+                            return const Padding(
+                              padding: EdgeInsets.only(top: 16),
+                              child: BrandedStateView(
+                                icon: Icons.forum_outlined,
+                                title: 'No comments yet',
+                                subtitle:
+                                    'Be the first to start the conversation.',
+                              ),
+                            );
+                          }
 
-                        return Column(
-                          children: comments
-                              .map((comment) => _CommentTile(comment: comment))
-                              .toList(),
-                        );
-                      },
-                    ),
+                          return Column(
+                            children: comments
+                                .map(
+                                  (comment) => _CommentTile(comment: comment),
+                                )
+                                .toList(),
+                          );
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
-              SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: _commentController,
-                          minLines: 1,
-                          maxLines: 4,
-                          decoration: const InputDecoration(
-                            hintText: 'Write a comment...',
+              if (!isAdminView)
+                SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _commentController,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: const InputDecoration(
+                              hintText: 'Write a comment...',
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.tonalIcon(
-                        onPressed: _isSending ? null : _sendComment,
-                        icon: _isSending
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.send_rounded),
-                        label: const Text('Send'),
-                      ),
-                    ],
+                        const SizedBox(width: 8),
+                        FilledButton.tonalIcon(
+                          onPressed: _isSending ? null : _sendComment,
+                          icon: _isSending
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.send_rounded),
+                          label: const Text('Send'),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
             ],
           );
         },

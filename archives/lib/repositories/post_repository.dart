@@ -132,6 +132,20 @@ class PostRepository {
     required String currentUserId,
     required int limit,
   }) async {
+    // Always include global public posts so Home never collapses to only
+    // self/following when fan-out pointers are sparse.
+    final publicSnapshot = await _firestore
+        .collection('posts')
+        .where('status', isEqualTo: PostStatus.published.name)
+        .where('privacy', isEqualTo: PostPrivacy.public.name)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+
+    final publicPosts = publicSnapshot.docs
+        .map((doc) => PostModel.fromMap(doc.data(), doc.id))
+        .toList();
+
     final followingSnap = await _firestore
         .collection('followers')
         .where('followerId', isEqualTo: currentUserId)
@@ -164,8 +178,13 @@ class PostRepository {
       );
     }
 
-    posts.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    return posts.take(limit).toList();
+    final mergedById = <String, PostModel>{
+      for (final post in publicPosts) post.id: post,
+      for (final post in posts) post.id: post,
+    };
+    final merged = mergedById.values.toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return merged.take(limit).toList();
   }
 
   Future<List<PostModel>> getUserPosts({

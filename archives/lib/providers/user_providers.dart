@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../core/constants/role_constants.dart';
+import '../core/utils/role_utils.dart';
 import '../models/follower_model.dart';
 import '../models/user_model.dart';
 import '../repositories/user_repository.dart';
@@ -87,3 +89,108 @@ final recommendedUsersProvider = FutureProvider<List<UserModel>>((ref) async {
         excludeFollowed: excludeFollowed,
       );
 });
+
+final isAdminOrHigherProvider = Provider<bool>((ref) {
+  return isAdminOrHigher(ref.watch(currentUserRoleProvider));
+});
+
+final adminUsersProvider = FutureProvider<List<UserModel>>((ref) {
+  return ref.read(userRepositoryProvider).getRecentUsers(limit: 50);
+});
+
+final adminUserActionProvider =
+    StateNotifierProvider<AdminUserActionNotifier, AsyncValue<void>>((ref) {
+      return AdminUserActionNotifier(ref.read(userRepositoryProvider));
+    });
+
+class AdminUserActionNotifier extends StateNotifier<AsyncValue<void>> {
+  final UserRepository _repo;
+
+  AdminUserActionNotifier(this._repo) : super(const AsyncValue.data(null));
+
+  Future<bool> suspendUser({
+    required String targetUserId,
+    required String actorAdminId,
+    required String reason,
+  }) async {
+    state = const AsyncValue.loading();
+    try {
+      await _repo.suspendUser(
+        targetUserId: targetUserId,
+        actorAdminId: actorAdminId,
+        reason: reason,
+      );
+      state = const AsyncValue.data(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> unsuspendUser({
+    required String targetUserId,
+    required String actorAdminId,
+  }) async {
+    state = const AsyncValue.loading();
+    try {
+      await _repo.unsuspendUser(
+        targetUserId: targetUserId,
+        actorAdminId: actorAdminId,
+      );
+      state = const AsyncValue.data(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> setRole({
+    required String targetUserId,
+    required String actorAdminId,
+    required String role,
+  }) async {
+    if (role != RoleConstants.user && role != RoleConstants.admin) {
+      return false;
+    }
+
+    state = const AsyncValue.loading();
+    try {
+      await _repo.setUserRole(
+        targetUserId: targetUserId,
+        role: role,
+        actorAdminId: actorAdminId,
+      );
+      state = const AsyncValue.data(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      return false;
+    }
+  }
+
+  Future<bool> updateAccount({
+    required String targetUserId,
+    required String actorAdminId,
+    required bool isSuspended,
+    required String suspensionType,
+    DateTime? suspensionUntil,
+  }) async {
+    state = const AsyncValue.loading();
+    try {
+      await _repo.updateAdminUserAccount(
+        targetUserId: targetUserId,
+        actorAdminId: actorAdminId,
+        isSuspended: isSuspended,
+        suspensionType: suspensionType,
+        suspensionUntil: suspensionUntil,
+      );
+      state = const AsyncValue.data(null);
+      return true;
+    } catch (e, st) {
+      state = AsyncValue.error(e, st);
+      return false;
+    }
+  }
+}
