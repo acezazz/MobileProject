@@ -38,18 +38,10 @@ class _ChatsListScreenState extends ConsumerState<ChatsListScreen>
   bool _isMessageRequest({
     required ChatModel chat,
     required String currentUserId,
-    required Set<String> followingIds,
-    required Set<String> followerIds,
   }) {
     if (chat.isGroup) return false;
-    final otherUserId = chat.participants.firstWhere(
-      (id) => id != currentUserId,
-      orElse: () => '',
-    );
-    if (otherUserId.isEmpty) return false;
-    final followsThem = followingIds.contains(otherUserId);
-    final followsMe = followerIds.contains(otherUserId);
-    return !followsThem && !followsMe;
+    return chat.status == ChatConversationStatus.request &&
+        chat.requestedBy != currentUserId;
   }
 
   List<ChatModel> _applySearch(List<ChatModel> chats) {
@@ -69,8 +61,6 @@ class _ChatsListScreenState extends ConsumerState<ChatsListScreen>
     }
 
     final chatsAsync = ref.watch(userChatsProvider(currentUser.uid));
-    final followingAsync = ref.watch(followingListProvider(currentUser.uid));
-    final followersAsync = ref.watch(followersListProvider(currentUser.uid));
     final suggestedAsync = ref.watch(recommendedUsersProvider);
 
     return Scaffold(
@@ -106,25 +96,12 @@ class _ChatsListScreenState extends ConsumerState<ChatsListScreen>
           Expanded(
             child: chatsAsync.when(
               data: (chats) {
-                final followingIds =
-                    followingAsync.valueOrNull
-                        ?.map((e) => e.followingId)
-                        .toSet() ??
-                    <String>{};
-                final followerIds =
-                    followersAsync.valueOrNull
-                        ?.map((e) => e.followerId)
-                        .toSet() ??
-                    <String>{};
-
                 final inbox = _applySearch(
                   chats
                       .where(
                         (chat) => !_isMessageRequest(
                           chat: chat,
                           currentUserId: currentUser.uid,
-                          followingIds: followingIds,
-                          followerIds: followerIds,
                         ),
                       )
                       .toList(),
@@ -136,8 +113,6 @@ class _ChatsListScreenState extends ConsumerState<ChatsListScreen>
                         (chat) => _isMessageRequest(
                           chat: chat,
                           currentUserId: currentUser.uid,
-                          followingIds: followingIds,
-                          followerIds: followerIds,
                         ),
                       )
                       .toList(),

@@ -207,7 +207,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(authStateProvider).valueOrNull;
+    final currentUserRole = ref.watch(currentUserRoleProvider);
     final isOwnProfile = currentUser?.uid == widget.userId;
+    final isAdminViewer =
+        currentUserRole == 'admin' || currentUserRole == 'superAdmin';
     final isFollowingProfileOwner = isOwnProfile
         ? true
         : (currentUser == null
@@ -240,15 +243,10 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
         actions: [
           if (isOwnProfile) ...[
             IconButton(
-              onPressed: () => context.push('/my-archives'),
-              icon: const Icon(Icons.archive_outlined),
-              tooltip: 'Archived posts',
-            ),
-            IconButton(
               onPressed: () => context.push('/settings'),
               icon: const Icon(Icons.settings_outlined),
             ),
-          ] else
+          ] else if (!isAdminViewer)
             IconButton(
               onPressed: () => context.push('/report/user/${widget.userId}'),
               icon: const Icon(Icons.more_horiz),
@@ -310,7 +308,9 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             borderRadius: BorderRadius.circular(24),
-                            color: Theme.of(context).colorScheme.surfaceContainerLow,
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerLow,
                           ),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -374,9 +374,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                                 const SizedBox(height: 14),
                                 Text(
                                   user.bio,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyMedium
+                                  style: Theme.of(context).textTheme.bodyMedium
                                       ?.copyWith(height: 1.35),
                                 ),
                               ],
@@ -422,10 +420,13 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                                         icon: const Icon(Icons.edit_outlined),
                                         label: const Text('Edit profile'),
                                       )
-                                    : _FollowButton(
-                                        currentUserId: currentUser?.uid ?? '',
-                                        targetUserId: widget.userId,
-                                      ),
+                                    : (isAdminViewer
+                                          ? const SizedBox.shrink()
+                                          : _FollowButton(
+                                              currentUserId:
+                                                  currentUser?.uid ?? '',
+                                              targetUserId: widget.userId,
+                                            )),
                               ),
                             ],
                           ),
@@ -445,14 +446,15 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen>
                           color: Theme.of(context).colorScheme.primaryContainer,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        labelColor: Theme.of(context)
-                            .colorScheme
-                            .onPrimaryContainer,
-                        unselectedLabelColor: Theme.of(context)
-                            .textTheme
-                            .bodyMedium
-                            ?.color,
-                        labelStyle: const TextStyle(fontWeight: FontWeight.w700),
+                        labelColor: Theme.of(
+                          context,
+                        ).colorScheme.onPrimaryContainer,
+                        unselectedLabelColor: Theme.of(
+                          context,
+                        ).textTheme.bodyMedium?.color,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                        ),
                         tabs: const [
                           Tab(
                             icon: Icon(Icons.view_agenda_outlined),

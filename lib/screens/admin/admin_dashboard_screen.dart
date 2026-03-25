@@ -37,6 +37,12 @@ class AdminDashboardScreen extends ConsumerWidget {
       .snapshots()
       .map((snapshot) => snapshot.size);
 
+  static final Stream<int> _adminNotificationsCountStream = _db
+      .collection('admin_notifications')
+      .where('read', isEqualTo: false)
+      .snapshots()
+      .map((snapshot) => snapshot.size);
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
@@ -106,6 +112,11 @@ class AdminDashboardScreen extends ConsumerWidget {
                 icon: Icons.archive_outlined,
                 stream: _archivedPostsCountStream,
               ),
+              _StatCard(
+                title: 'Admin Alerts',
+                icon: Icons.notifications_active_outlined,
+                stream: _adminNotificationsCountStream,
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -135,6 +146,13 @@ class AdminDashboardScreen extends ConsumerWidget {
             title: 'Archives Monitoring',
             subtitle: 'Browse archived posts and open details',
             onTap: () => context.push('/admin/archives'),
+          ),
+          const SizedBox(height: 12),
+          _AdminTile(
+            icon: Icons.notifications_outlined,
+            title: 'Admin Notifications',
+            subtitle: 'Warnings, suspensions, and moderation events',
+            onTap: () => context.push('/admin/notifications'),
           ),
         ],
       ),

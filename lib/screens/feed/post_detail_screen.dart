@@ -126,6 +126,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
               post.privacy == PostPrivacy.public ||
               isOwner ||
               (post.privacy == PostPrivacy.followersOnly && isFollowingAuthor);
+          final isModeratedPost = post.status != PostStatus.published;
 
           if (!canViewPost) {
             return const BrandedStateView(
@@ -146,6 +147,19 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                       hideLikeAction: isAdminView,
                       hideCommentAction: true,
                     ),
+                    if (!isAdminView && isModeratedPost)
+                      const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                        child: Card(
+                          child: ListTile(
+                            leading: Icon(Icons.gpp_bad_outlined),
+                            title: Text('Post removed due to violation'),
+                            subtitle: Text(
+                              'This post was removed due to a violation. You cannot restore it.',
+                            ),
+                          ),
+                        ),
+                      ),
                     if (!isAdminView) ...[
                       Padding(
                         key: _commentsHeaderKey,
@@ -191,7 +205,7 @@ class _PostDetailScreenState extends ConsumerState<PostDetailScreen> {
                   ],
                 ),
               ),
-              if (!isAdminView)
+              if (!isAdminView && !isModeratedPost)
                 SafeArea(
                   top: false,
                   child: Padding(

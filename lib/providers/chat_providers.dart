@@ -72,6 +72,7 @@ final inChatMessageSearchProvider =
             chatId: args.chatId,
             query: args.query,
             currentUserId: currentUser.uid,
+            limit: 500,
           );
     });
 

@@ -95,10 +95,14 @@ class UserModel {
           : asString(map['suspensionType']),
       isSuspended,
     );
-    final DateTime? suspensionUntil = map['suspensionUntil'] == null
+    final dynamic suspensionUntilRaw =
+        map['suspensionUntil'] ?? map['suspensionEnd'];
+    final DateTime? suspensionUntil = suspensionUntilRaw == null
         ? null
-        : asDateTime(map['suspensionUntil']);
-    final int warningsCount = asInt(map['warningsCount']);
+        : asDateTime(suspensionUntilRaw);
+    final int warningsCount = map['warningsCount'] == null
+        ? asInt(map['warningCount'])
+        : asInt(map['warningsCount']);
     final int strikesCount = asInt(map['strikesCount']);
 
     final String statusFromMap = asString(map['status']).isEmpty
@@ -156,6 +160,10 @@ class UserModel {
       'suspensionUntil': suspensionUntil == null
           ? null
           : Timestamp.fromDate(suspensionUntil!),
+      'suspensionEnd': suspensionUntil == null
+          ? null
+          : Timestamp.fromDate(suspensionUntil!),
+      'warningCount': warningsCount,
       'warningsCount': warningsCount,
       'strikesCount': strikesCount,
       'suspendedAt': suspendedAt == null

@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../models/user_model.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/user_providers.dart';
+import '../../widgets/common/avatar_widget.dart';
 
 class AdminUsersScreen extends ConsumerWidget {
   const AdminUsersScreen({super.key});
@@ -21,12 +23,17 @@ class AdminUsersScreen extends ConsumerWidget {
           return ListView.separated(
             padding: const EdgeInsets.all(12),
             itemCount: users.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 8),
+            separatorBuilder: (context, index) => const SizedBox(height: 8),
             itemBuilder: (context, index) {
               final user = users[index];
               return Card(
                 margin: EdgeInsets.zero,
                 child: ListTile(
+                  leading: AvatarWidget(
+                    imageUrl: user.profilePhoto,
+                    name: user.name,
+                    radius: 20,
+                  ),
                   title: Text(user.name),
                   subtitle: Text(
                     '@${user.username} • ${user.role} • ${user.isSuspended ? 'suspended' : user.status}',
@@ -34,6 +41,10 @@ class AdminUsersScreen extends ConsumerWidget {
                   trailing: PopupMenuButton<String>(
                     onSelected: (value) => _onAction(context, ref, value, user),
                     itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'view_profile',
+                        child: Text('View profile'),
+                      ),
                       const PopupMenuItem(
                         value: 'edit_account',
                         child: Text('Edit account'),
@@ -73,7 +84,10 @@ class AdminUsersScreen extends ConsumerWidget {
     bool ok = false;
     final notifier = ref.read(adminUserActionProvider.notifier);
 
-    if (action == 'edit_account') {
+    if (action == 'view_profile') {
+      context.push('/profile/${user.uid}');
+      return;
+    } else if (action == 'edit_account') {
       final result = await _showEditAccountDialog(
         context: context,
         user: user,

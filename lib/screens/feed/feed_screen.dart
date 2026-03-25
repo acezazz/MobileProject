@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../models/interaction_intent.dart';
 import '../../models/post_model.dart';
 import '../../models/user_model.dart';
 import '../../core/navigation/interaction_gate.dart';
@@ -441,7 +442,18 @@ class FeedScreen extends ConsumerWidget {
     PostModel post,
   ) async {
     final currentUser = ref.read(authStateProvider).valueOrNull;
-    if (currentUser == null) return;
+    if (currentUser == null) {
+      await ensureAuthenticatedForIntent(
+        context: context,
+        ref: ref,
+        intent: InteractionIntent(
+          targetType: InteractionTargetType.post,
+          targetId: post.id,
+          action: InteractionAction.share,
+        ),
+      );
+      return;
+    }
 
     final following = await ref
         .read(userRepositoryProvider)

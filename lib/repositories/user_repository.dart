@@ -74,6 +74,7 @@ class UserRepository {
     bool? isSuspended,
     String? suspensionType,
     DateTime? suspensionUntil,
+    String? suspensionReason,
     int? warningsCount,
     int? strikesCount,
   }) {
@@ -81,7 +82,7 @@ class UserRepository {
         current['isSuspended'] == true ||
         (current['status']?.toString().toLowerCase() == 'suspended');
 
-    final normalizedSuspensionType =
+    final baseSuspensionType =
         suspensionType ??
         (() {
           final raw = current['suspensionType']?.toString();
@@ -105,13 +106,56 @@ class UserRepository {
             : 'user');
     final normalizedIsSuspended = isSuspended ?? currentIsSuspended;
 
+    final currentStatus =
+        current['status']?.toString().toLowerCase().trim().isNotEmpty == true
+        ? current['status'].toString().toLowerCase().trim()
+        : 'active';
+    final normalizedStatus = normalizedIsSuspended
+        ? 'suspended'
+        : (currentStatus == 'deactivated' ? 'deactivated' : 'active');
+
+    final normalizedSuspensionType = normalizedIsSuspended
+        ? (baseSuspensionType == 'none' ? 'permanent' : baseSuspensionType)
+        : 'none';
+
+    DateTime? normalizedSuspensionUntil;
+    if (normalizedIsSuspended && normalizedSuspensionType == 'temporary') {
+      if (suspensionUntil != null) {
+        normalizedSuspensionUntil = suspensionUntil;
+      } else if (current['suspensionUntil'] is Timestamp) {
+        normalizedSuspensionUntil = (current['suspensionUntil'] as Timestamp)
+            .toDate();
+      } else {
+        normalizedSuspensionUntil = DateTime.now().add(const Duration(days: 7));
+      }
+    }
+
+    final currentSuspendedAt = current['suspendedAt'] is Timestamp
+        ? current['suspendedAt'] as Timestamp
+        : null;
+    final normalizedSuspendedAt = normalizedIsSuspended
+        ? (currentSuspendedAt ?? Timestamp.fromDate(DateTime.now()))
+        : null;
+
+    final currentReason = current['suspensionReason']?.toString().trim();
+    final normalizedSuspensionReason = normalizedIsSuspended
+        ? ((suspensionReason?.trim().isNotEmpty ?? false)
+              ? suspensionReason!.trim()
+              : ((currentReason?.isNotEmpty ?? false)
+                    ? currentReason
+                    : 'Policy violation'))
+        : null;
+
     return {
       'role': normalizedRole,
+      'status': normalizedStatus,
       'isSuspended': normalizedIsSuspended,
       'suspensionType': normalizedSuspensionType,
-      'suspensionUntil': suspensionUntil == null
+      'suspensionUntil': normalizedSuspensionUntil == null
           ? null
-          : Timestamp.fromDate(suspensionUntil),
+          : Timestamp.fromDate(normalizedSuspensionUntil),
+      'suspendedAt': normalizedSuspendedAt,
+      'suspensionReason': normalizedSuspensionReason,
       'warningsCount': normalizedWarningsCount,
       'strikesCount': normalizedStrikesCount,
       'updatedAt': FieldValue.serverTimestamp(),
@@ -123,6 +167,11 @@ class UserRepository {
 
   /// Follow a user. Creates follower doc. Counters updated by Cloud Functions.
   Future<void> followUser(String currentUserId, String targetUserId) async {
+    final currentUser = await getUserById(currentUserId);
+    if (currentUser?.role == 'admin' || currentUser?.role == 'superAdmin') {
+      throw StateError('Admin accounts cannot follow users.');
+    }
+
     final docId = '${currentUserId}_$targetUserId';
     final batch = _firestore.batch();
 

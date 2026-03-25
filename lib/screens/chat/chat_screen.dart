@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:typed_data';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +9,7 @@ import '../../core/utils/app_snackbar.dart';
 import '../../core/utils/web_image_picker.dart';
 import '../../models/chat_model.dart';
 import '../../models/message_model.dart';
+import '../../models/message_search_result.dart';
 import '../../providers/auth_providers.dart';
 import '../../providers/chat_providers.dart';
 import '../../providers/user_providers.dart';
@@ -61,13 +62,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
   Future<void> _pickImage() async {
     final currentUserId = _currentUserId();
-    final chat = await ref.read(chatInfoProvider(widget.chatId).future);
+    final chat = await ref
+        .read(chatRepositoryProvider)
+        .getChatById(widget.chatId);
     if (chat != null && currentUserId != null) {
-      final blocked = chat.blockedBy.contains(currentUserId);
+      final blockingNotice = _blockingNotice(chat, currentUserId);
       final mediaEnabled = chat.mediaPermissions[currentUserId] ?? true;
-      if (blocked) {
+      if (blockingNotice != null) {
         if (mounted) {
-          AppSnackBar.error(context, 'Conversation is blocked.');
+          AppSnackBar.error(context, blockingNotice);
         }
         return;
       }
@@ -93,21 +96,72 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Future<void> _openInChatSearch() async {
+    final currentUserId = _currentUserId();
+    if (currentUserId == null) return;
+
+    final searchController = TextEditingController();
+    Timer? debounce;
+    var searchNonce = 0;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       backgroundColor: AppColors.surface,
       builder: (sheetContext) {
         var localQuery = '';
+        var results = const <MessageSearchResult>[];
+        var isSearching = false;
+        String? searchError;
+
+        Future<void> runSearch(
+          String rawQuery,
+          void Function(void Function()) setSheetState,
+        ) async {
+          final query = rawQuery.trim();
+          final token = ++searchNonce;
+
+          if (query.isEmpty) {
+            setSheetState(() {
+              isSearching = false;
+              searchError = null;
+              results = const <MessageSearchResult>[];
+            });
+            return;
+          }
+
+          setSheetState(() {
+            isSearching = true;
+            searchError = null;
+          });
+
+          try {
+            final found = await ref
+                .read(chatRepositoryProvider)
+                .searchMessagesInChat(
+                  chatId: widget.chatId,
+                  query: query,
+                  currentUserId: currentUserId,
+                  limit: 500,
+                )
+                .timeout(const Duration(seconds: 10));
+
+            if (!mounted || token != searchNonce) return;
+            setSheetState(() {
+              isSearching = false;
+              searchError = null;
+              results = found;
+            });
+          } catch (e) {
+            if (!mounted || token != searchNonce) return;
+            setSheetState(() {
+              isSearching = false;
+              searchError = 'Search failed: $e';
+              results = const <MessageSearchResult>[];
+            });
+          }
+        }
+
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final resultsAsync = ref.watch(
-              inChatMessageSearchProvider((
-                chatId: widget.chatId,
-                query: localQuery,
-              )),
-            );
-
             return SafeArea(
               child: Padding(
                 padding: EdgeInsets.only(
@@ -131,6 +185,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       ),
                       const SizedBox(height: 10),
                       TextField(
+                        controller: searchController,
                         autofocus: true,
                         style: const TextStyle(color: AppColors.textPrimary),
                         decoration: InputDecoration(
@@ -148,12 +203,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                                   ),
                                   onPressed: () => setSheetState(() {
                                     localQuery = '';
+                                    debounce?.cancel();
+                                    searchNonce++;
+                                    isSearching = false;
+                                    searchError = null;
+                                    results = const <MessageSearchResult>[];
+                                    searchController.clear();
                                   }),
                                 )
                               : null,
                         ),
                         onChanged: (value) => setSheetState(() {
                           localQuery = value;
+                          debounce?.cancel();
+                          debounce = Timer(
+                            const Duration(milliseconds: 320),
+                            () => runSearch(value, setSheetState),
+                          );
                         }),
                       ),
                       const SizedBox(height: 10),
@@ -161,74 +227,66 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         child: localQuery.trim().isEmpty
                             ? const Center(
                                 child: Text(
-                                  'Start typing to search this chat',
+                                  'Type at least 1 character to search',
                                   style: TextStyle(color: AppColors.textHint),
                                 ),
                               )
-                            : resultsAsync.when(
-                                data: (results) {
-                                  if (results.isEmpty) {
-                                    return const Center(
-                                      child: Text(
-                                        'No matching messages',
-                                        style: TextStyle(
-                                          color: AppColors.textHint,
-                                        ),
+                            : isSearching
+                            ? const Center(child: CircularProgressIndicator())
+                            : (searchError != null)
+                            ? Center(
+                                child: Text(
+                                  searchError!,
+                                  style: const TextStyle(
+                                    color: AppColors.error,
+                                  ),
+                                ),
+                              )
+                            : results.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'No matching messages',
+                                  style: TextStyle(color: AppColors.textHint),
+                                ),
+                              )
+                            : ListView.builder(
+                                itemCount: results.length,
+                                itemBuilder: (context, index) {
+                                  final item = results[index];
+                                  return ListTile(
+                                    title: Text(
+                                      item.senderName,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontWeight: FontWeight.w600,
                                       ),
-                                    );
-                                  }
-                                  return ListView.builder(
-                                    itemCount: results.length,
-                                    itemBuilder: (context, index) {
-                                      final item = results[index];
-                                      return ListTile(
-                                        title: Text(
-                                          item.senderName,
-                                          style: const TextStyle(
-                                            color: AppColors.textPrimary,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          item.snippet,
-                                          maxLines: 2,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: const TextStyle(
-                                            color: AppColors.textHint,
-                                          ),
-                                        ),
-                                        trailing: Text(
-                                          timeago.format(
-                                            item.createdAt,
-                                            locale: 'en_short',
-                                          ),
-                                          style: const TextStyle(
-                                            color: AppColors.textHint,
-                                            fontSize: 12,
-                                          ),
-                                        ),
-                                        onTap: () {
-                                          setState(() {
-                                            _pendingJumpMessageId =
-                                                item.messageId;
-                                          });
-                                          Navigator.pop(sheetContext);
-                                        },
-                                      );
+                                    ),
+                                    subtitle: Text(
+                                      item.snippet,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: AppColors.textHint,
+                                      ),
+                                    ),
+                                    trailing: Text(
+                                      timeago.format(
+                                        item.createdAt,
+                                        locale: 'en_short',
+                                      ),
+                                      style: const TextStyle(
+                                        color: AppColors.textHint,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    onTap: () {
+                                      setState(() {
+                                        _pendingJumpMessageId = item.messageId;
+                                      });
+                                      Navigator.pop(sheetContext);
                                     },
                                   );
                                 },
-                                loading: () => const Center(
-                                  child: CircularProgressIndicator(),
-                                ),
-                                error: (e, _) => Center(
-                                  child: Text(
-                                    'Search failed: $e',
-                                    style: const TextStyle(
-                                      color: AppColors.error,
-                                    ),
-                                  ),
-                                ),
                               ),
                       ),
                     ],
@@ -240,6 +298,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         );
       },
     );
+    debounce?.cancel();
+    searchController.dispose();
   }
 
   void _jumpToMessage(
@@ -642,32 +702,61 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
-  Future<void> _setMediaPermission(bool enabled) async {
-    final currentUserId = _currentUserId();
-    if (currentUserId == null) return;
-    await ref.read(chatRepositoryProvider).updateGroupInfo(widget.chatId, {
-      'mediaPermissions.$currentUserId': enabled,
-    });
+  String? _blockingNotice(ChatModel? chat, String? currentUserId) {
+    if (chat == null || currentUserId == null || !chat.isBlocked) {
+      return null;
+    }
+    return chat.blockedBy == currentUserId
+        ? 'You blocked this user.'
+        : 'You are blocked by this user.';
   }
 
   Future<void> _setBlocked(bool blocked) async {
     final currentUserId = _currentUserId();
     if (currentUserId == null) return;
-    await ref.read(chatRepositoryProvider).updateGroupInfo(widget.chatId, {
-      'blockedBy': blocked
-          ? FieldValue.arrayUnion([currentUserId])
-          : FieldValue.arrayRemove([currentUserId]),
-    });
+    try {
+      await ref.read(chatRepositoryProvider).updateGroupInfo(widget.chatId, {
+        'isBlocked': blocked,
+        'blockedBy': blocked ? currentUserId : null,
+      });
+      ref.invalidate(chatInfoProvider(widget.chatId));
+      if (mounted) {
+        AppSnackBar.success(
+          context,
+          blocked ? 'User blocked in this chat.' : 'User unblocked.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.error(context, 'Block update failed: $e');
+      }
+    }
+  }
+
+  Future<void> _acceptMessageRequest() async {
+    final currentUserId = _currentUserId();
+    if (currentUserId == null) return;
+    try {
+      await ref
+          .read(chatRepositoryProvider)
+          .acceptRequest(chatId: widget.chatId, currentUserId: currentUserId);
+      ref.invalidate(chatInfoProvider(widget.chatId));
+      if (mounted) {
+        AppSnackBar.success(context, 'Message request accepted.');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppSnackBar.error(context, 'Could not accept request: $e');
+      }
+    }
   }
 
   Future<void> _showChatActions(ChatModel? chat) async {
     final currentUserId = _currentUserId();
-    final mediaEnabled = currentUserId != null
-        ? (chat?.mediaPermissions[currentUserId] ?? true)
-        : true;
-    final isBlocked = currentUserId != null
-        ? (chat?.blockedBy.contains(currentUserId) ?? false)
-        : false;
+    final isBlocked = chat?.isBlocked ?? false;
+    final isBlocker = currentUserId != null && chat?.blockedBy == currentUserId;
+    final canBlock = !isBlocked;
+    final canUnblock = isBlocked && isBlocker;
     final otherUserId = _otherParticipantId(chat);
 
     await showModalBottomSheet<void>(
@@ -703,35 +792,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 await _openInChatSearch();
               },
             ),
-            SwitchListTile(
-              secondary: const Icon(
-                Icons.perm_media_outlined,
-                color: AppColors.textSecondary,
-              ),
-              title: const Text(
-                'Allow media sending',
-                style: TextStyle(color: AppColors.textPrimary),
-              ),
-              value: mediaEnabled,
-              onChanged: (value) async {
-                await _setMediaPermission(value);
-                if (sheetContext.mounted) Navigator.pop(sheetContext);
-              },
-            ),
-            if (otherUserId != null && otherUserId.isNotEmpty)
+            if (otherUserId != null &&
+                otherUserId.isNotEmpty &&
+                (canBlock || canUnblock))
               ListTile(
                 leading: Icon(
-                  isBlocked ? Icons.lock_open_outlined : Icons.block,
-                  color: isBlocked ? AppColors.textSecondary : AppColors.error,
+                  canUnblock ? Icons.lock_open_outlined : Icons.block,
+                  color: canUnblock ? AppColors.textSecondary : AppColors.error,
                 ),
                 title: Text(
-                  isBlocked ? 'Unblock user' : 'Block user',
+                  canUnblock ? 'Unblock user' : 'Block user',
                   style: TextStyle(
-                    color: isBlocked ? AppColors.textPrimary : AppColors.error,
+                    color: canUnblock ? AppColors.textPrimary : AppColors.error,
                   ),
                 ),
                 onTap: () async {
-                  await _setBlocked(!isBlocked);
+                  await _setBlocked(!canUnblock);
                   if (sheetContext.mounted) Navigator.pop(sheetContext);
                 },
               ),
@@ -774,12 +850,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (text.isEmpty && _selectedImageBytes == null) return;
 
     final currentUserId = _currentUserId();
-    final chat = await ref.read(chatInfoProvider(widget.chatId).future);
+    final chat = await ref
+        .read(chatRepositoryProvider)
+        .getChatById(widget.chatId);
     if (chat != null && currentUserId != null) {
-      final blocked = chat.blockedBy.contains(currentUserId);
+      final blockingNotice = _blockingNotice(chat, currentUserId);
       final mediaEnabled = chat.mediaPermissions[currentUserId] ?? true;
-      if (blocked) {
-        if (mounted) AppSnackBar.error(context, 'Conversation is blocked.');
+      if (blockingNotice != null) {
+        if (mounted) AppSnackBar.error(context, blockingNotice);
         return;
       }
       if (_selectedImageBytes != null && !mediaEnabled) {
@@ -847,6 +925,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         widget.currentUserIdOverride ?? currentUser?.uid;
     final messagesAsync = ref.watch(chatMessagesProvider(widget.chatId));
     final chatInfoAsync = ref.watch(chatInfoProvider(widget.chatId));
+    final blockingNotice = _blockingNotice(
+      chatInfoAsync.valueOrNull,
+      effectiveCurrentUserId,
+    );
+    final canCompose = effectiveCurrentUserId != null && blockingNotice == null;
+    final chat = chatInfoAsync.valueOrNull;
+    final isRequestForCurrentUser =
+        effectiveCurrentUserId != null &&
+        chat != null &&
+        chat.status == ChatConversationStatus.request &&
+        chat.requestedBy != effectiveCurrentUserId;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -923,11 +1012,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ),
               ]
             : [
-                IconButton(
-                  icon: const Icon(Icons.image_outlined),
-                  tooltip: 'Send image',
-                  onPressed: _isUploading ? null : _pickImage,
-                ),
                 IconButton(
                   icon: const Icon(Icons.more_vert),
                   tooltip: 'Chat options',
@@ -1082,7 +1166,44 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   ],
                 ),
               ),
+            if (isRequestForCurrentUser)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                color: AppColors.surface,
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Message request. Reply or accept to move this chat to Inbox.',
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    TextButton(
+                      onPressed: _acceptMessageRequest,
+                      child: const Text('Accept'),
+                    ),
+                  ],
+                ),
+              ),
             // Input bar
+            if (blockingNotice != null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                color: AppColors.surface,
+                child: Text(
+                  blockingNotice,
+                  style: const TextStyle(
+                    color: AppColors.error,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 6),
@@ -1107,12 +1228,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 6),
                   child: TextField(
                     controller: _messageController,
+                    enabled: canCompose && !_isUploading,
                     style: const TextStyle(
                       color: AppColors.textPrimary,
                       fontSize: 15,
                     ),
                     decoration: InputDecoration(
-                      hintText: 'Message...',
+                      hintText: blockingNotice ?? 'Message...',
                       hintStyle: const TextStyle(color: AppColors.textHint),
                       filled: true,
                       fillColor: AppColors.surfaceVariant,
@@ -1149,7 +1271,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Icons.emoji_emotions_outlined,
                               color: AppColors.textSecondary,
                             ),
-                            onPressed: _isUploading
+                            onPressed: _isUploading || !canCompose
                                 ? null
                                 : _openComposerEmojiPicker,
                             tooltip: 'Add emoji',
@@ -1165,7 +1287,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               Icons.image_outlined,
                               color: AppColors.textSecondary,
                             ),
-                            onPressed: _isUploading ? null : _pickImage,
+                            onPressed: _isUploading || !canCompose
+                                ? null
+                                : _pickImage,
                             tooltip: 'Send image',
                           ),
                         ],
@@ -1180,12 +1304,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                               : Colors.white,
                         ),
                         icon: const Icon(Icons.send),
-                        onPressed: _isUploading ? null : _sendMessage,
+                        onPressed: _isUploading || !canCompose
+                            ? null
+                            : _sendMessage,
                         tooltip: 'Send message',
                       ),
                     ),
                     textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _sendMessage(),
+                    onSubmitted: (_) {
+                      if (canCompose && !_isUploading) {
+                        _sendMessage();
+                      }
+                    },
                   ),
                 ),
               ),

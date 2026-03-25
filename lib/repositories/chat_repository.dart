@@ -22,11 +22,25 @@ class ChatRepository {
     );
     if (existing != null) return existing.id;
 
+    final isConnected = await _chatService.areUsersConnected(
+      currentUserId,
+      otherUserId,
+    );
+    final status = isConnected
+        ? ChatConversationStatus.accepted
+        : ChatConversationStatus.request;
+
     // Create new chat
     final chat = ChatModel(
       id: '',
       participants: [currentUserId, otherUserId],
       isGroup: false,
+      status: status,
+      requestedBy: status == ChatConversationStatus.request
+          ? currentUserId
+          : null,
+      isBlocked: false,
+      blockedBy: null,
       lastMessageTime: DateTime.now(),
       createdAt: DateTime.now(),
     );
@@ -101,6 +115,26 @@ class ChatRepository {
   Future<void> updateGroupInfo(String chatId, Map<String, dynamic> data) =>
       _chatService.updateChat(chatId, data);
 
+  Future<void> acceptRequest({
+    required String chatId,
+    required String currentUserId,
+  }) async {
+    final chat = await _chatService.getChatById(chatId);
+    if (chat == null) {
+      throw Exception('Chat not found');
+    }
+    if (chat.status != ChatConversationStatus.request) {
+      return;
+    }
+    if (chat.requestedBy == currentUserId) {
+      throw Exception('Only the receiver can accept this request');
+    }
+    await _chatService.updateChat(chatId, {
+      'status': ChatConversationStatus.accepted.name,
+      'requestedBy': null,
+    });
+  }
+
   Future<void> deleteMessageForEveryone({
     required String chatId,
     required String messageId,
@@ -167,7 +201,7 @@ class ChatRepository {
     required String chatId,
     required String query,
     required String currentUserId,
-    int limit = 100,
+    int limit = 500,
   }) => _chatService.searchMessagesInChat(
     chatId: chatId,
     query: query,

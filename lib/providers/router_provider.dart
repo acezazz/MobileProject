@@ -6,6 +6,7 @@ import '../screens/activity/activity_screen.dart';
 import '../screens/admin/admin_dashboard_screen.dart';
 import '../screens/admin/admin_login_screen.dart';
 import '../screens/admin/admin_archives_screen.dart';
+import '../screens/admin/admin_notifications_screen.dart';
 import '../screens/admin/admin_posts_screen.dart';
 import '../screens/admin/admin_reports_screen.dart';
 import '../screens/admin/admin_users_screen.dart';
@@ -48,6 +49,10 @@ String? resolveAppRedirect({
       matchedLocation == '/login' || matchedLocation == '/register';
   final isAdminRoute =
       matchedLocation == '/admin' || matchedLocation.startsWith('/admin/');
+  final isProfileRoute =
+      matchedLocation.startsWith('/profile/') ||
+      matchedLocation.startsWith('/followers/') ||
+      matchedLocation.startsWith('/following/');
 
   if (isSplashRoute) {
     return null;
@@ -92,7 +97,11 @@ String? resolveAppRedirect({
 
   if (isLoggedIn && isAdminUser) {
     final isAllowedAdminLocation =
-        isAdminRoute || isAdminLoginRoute || isSplashRoute || isPostDetailRoute;
+        isAdminRoute ||
+        isAdminLoginRoute ||
+        isSplashRoute ||
+        isPostDetailRoute ||
+        isProfileRoute;
     if (!isAllowedAdminLocation) {
       return '/admin';
     }
@@ -247,6 +256,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/admin/archives',
         builder: (context, state) => const AdminArchivesScreen(),
+      ),
+      GoRoute(
+        path: '/admin/notifications',
+        builder: (context, state) => const AdminNotificationsScreen(),
       ),
 
       // Report routes

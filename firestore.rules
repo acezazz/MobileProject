@@ -20,7 +20,7 @@ service cloud.firestore {
     function isAdmin() {
       return isSignedIn()
         && hasUserDoc(request.auth.uid)
-        && userDoc(request.auth.uid).data.role == 'admin';
+        && userDoc(request.auth.uid).data.role in ['admin', 'superAdmin'];
     }
 
     function changedKeys() {
@@ -45,14 +45,30 @@ service cloud.firestore {
         request.resource.data.suspensionType == 'none'
         && request.resource.data.isSuspended == false
         && request.resource.data.suspensionUntil == null
+        && (
+          !('suspensionEnd' in request.resource.data.keys())
+          || request.resource.data.suspensionEnd == null
+        )
       ) || (
         request.resource.data.suspensionType == 'temporary'
         && request.resource.data.isSuspended == true
         && request.resource.data.suspensionUntil is timestamp
+        && (
+          !('suspensionEnd' in request.resource.data.keys())
+          || request.resource.data.suspensionEnd is timestamp
+        )
+        && (
+          !('suspensionEnd' in request.resource.data.keys())
+          || request.resource.data.suspensionEnd == request.resource.data.suspensionUntil
+        )
       ) || (
         request.resource.data.suspensionType == 'permanent'
         && request.resource.data.isSuspended == true
         && request.resource.data.suspensionUntil == null
+        && (
+          !('suspensionEnd' in request.resource.data.keys())
+          || request.resource.data.suspensionEnd == null
+        )
       );
     }
 
@@ -60,9 +76,14 @@ service cloud.firestore {
       return isAdmin()
         && changedKeys().hasOnly([
           'role',
+          'status',
           'isSuspended',
           'suspensionType',
           'suspensionUntil',
+          'suspensionEnd',
+          'suspensionReason',
+          'suspendedAt',
+          'warningCount',
           'warningsCount',
           'strikesCount',
           'updatedAt',
@@ -70,16 +91,66 @@ service cloud.firestore {
         ])
         && request.resource.data.updatedByAdminId == request.auth.uid
         && request.resource.data.role in ['user', 'admin']
+        && request.resource.data.status in ['active', 'suspended', 'deactivated']
+        && (
+          request.resource.data.isSuspended
+          ? request.resource.data.status == 'suspended'
+          : request.resource.data.status != 'suspended'
+        )
         && request.resource.data.warningsCount is int
         && request.resource.data.warningsCount >= 0
+        && (
+          !('warningCount' in request.resource.data.keys())
+          || (
+            request.resource.data.warningCount is int
+            && request.resource.data.warningCount >= 0
+            && request.resource.data.warningCount == request.resource.data.warningsCount
+          )
+        )
         && request.resource.data.strikesCount is int
         && request.resource.data.strikesCount >= 0
         && request.resource.data.updatedAt is timestamp
+        && (
+          request.resource.data.suspensionReason == null
+          || request.resource.data.suspensionReason is string
+        )
+        && (
+          request.resource.data.suspendedAt == null
+          || request.resource.data.suspendedAt is timestamp
+        )
         && isValidSuspensionState()
         && (
           !changedKeys().hasAny(['role'])
           || request.auth.uid != userId
         );
+    }
+
+    function postChangedKeys() {
+      return request.resource.data.diff(resource.data).changedKeys();
+    }
+
+    function isValidOwnerPostUpdate() {
+      return request.auth != null
+        && request.auth.uid == resource.data.userId
+        && resource.data.status != 'suspended'
+        && (
+          request.resource.data.status == resource.data.status
+          || (
+            resource.data.status in ['published', 'draft', 'archived']
+            && request.resource.data.status in ['published', 'draft', 'archived']
+          )
+        )
+        && postChangedKeys().hasOnly([
+          'content',
+          'imageUrl',
+          'imageUrls',
+          'videoUrls',
+          'fileUrls',
+          'tags',
+          'privacy',
+          'status',
+          'updatedAt'
+        ]);
     }
 
     function reportChangedKeys() {
@@ -138,6 +209,54 @@ service cloud.firestore {
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
 
+    function isChatBlocked(chatId) {
+      return get(/databases/$(database)/documents/chats/$(chatId)).data.isBlocked == true;
+    }
+
+    function chatChangedKeys() {
+      return request.resource.data.diff(resource.data).changedKeys();
+    }
+
+    function isValidChatBlockTransition() {
+      return chatChangedKeys().hasOnly(['isBlocked', 'blockedBy'])
+        && (
+          (
+            resource.data.isBlocked != true
+            && request.resource.data.isBlocked == true
+            && request.resource.data.blockedBy == request.auth.uid
+          ) || (
+            resource.data.isBlocked == true
+            && resource.data.blockedBy == request.auth.uid
+            && request.resource.data.isBlocked == false
+            && request.resource.data.blockedBy == null
+          )
+        );
+    }
+
+    function isValidChatStatusAcceptanceUpdate() {
+      return chatChangedKeys().hasOnly([
+        'status',
+        'requestedBy',
+        'lastMessage',
+        'lastMessageSenderId',
+        'lastMessageTime'
+      ])
+        && resource.data.status == 'request'
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.requestedBy == null
+        && resource.data.requestedBy != request.auth.uid
+        && (
+          !chatChangedKeys().hasAny([
+            'lastMessage',
+            'lastMessageSenderId',
+            'lastMessageTime'
+          ]) || (
+            request.resource.data.lastMessageSenderId == request.auth.uid
+            && request.resource.data.lastMessageTime is timestamp
+          )
+        );
+    }
+
     function isValidParticipantReactionUpdate(chatId) {
       return isChatParticipant(chatId)
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['reactions'])
@@ -163,6 +282,17 @@ service cloud.firestore {
         && request.resource.data.warningsCount == 0
         && request.resource.data.strikesCount == 0;
       allow update: if isSafeSelfUserUpdate(userId) || isValidAdminUserModerationUpdate(userId);
+
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isAdmin();
+        allow update, delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Admin notifications
+    match /admin_notifications/{notificationId} {
+      allow read, create, update, delete: if isAdmin();
     }
 
     // Posts
@@ -171,10 +301,19 @@ service cloud.firestore {
         || isPublicPublishedPostData(resource.data);
       allow create: if request.auth != null
         && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null
+      allow update: if request.auth != null
         && (
-          resource.data.userId == request.auth.uid
+          isValidOwnerPostUpdate()
           || isAdmin()
+        );
+
+      allow delete: if request.auth != null
+        && (
+          isAdmin()
+          || (
+            request.auth.uid == resource.data.userId
+            && resource.data.status != 'suspended'
+          )
         );
 
       match /comments/{commentId} {
@@ -208,12 +347,23 @@ service cloud.firestore {
         && request.auth.uid in resource.data.participants;
       allow create: if isSignedIn()
         && request.auth.uid in request.resource.data.participants;
-      allow update, delete: if isSignedIn()
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participants
+        && (
+          !chatChangedKeys().hasAny(['isBlocked', 'blockedBy'])
+          || isValidChatBlockTransition()
+        )
+        && (
+          !chatChangedKeys().hasAny(['status', 'requestedBy'])
+          || isValidChatStatusAcceptanceUpdate()
+        );
+      allow delete: if isSignedIn()
         && request.auth.uid in resource.data.participants;
 
       match /messages/{messageId} {
         allow read: if isChatParticipant(chatId);
         allow create: if isChatParticipant(chatId)
+          && !isChatBlocked(chatId)
           && request.resource.data.senderId == request.auth.uid;
         allow update: if isChatParticipant(chatId) && (
           resource.data.senderId == request.auth.uid

@@ -41,7 +41,16 @@ final currentUserRoleProvider = Provider<String?>((ref) {
 
 final currentUserSuspendedProvider = Provider<bool>((ref) {
   final user = ref.watch(currentUserProfileProvider).valueOrNull;
-  return user?.isSuspended ?? false;
+  if (user == null || !user.isSuspended) {
+    return false;
+  }
+
+  final until = user.suspensionUntil;
+  if (until == null) {
+    return true;
+  }
+
+  return DateTime.now().isBefore(until);
 });
 
 // Auth state notifier for login/register/logout actions

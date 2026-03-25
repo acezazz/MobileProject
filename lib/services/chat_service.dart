@@ -14,6 +14,8 @@ class ChatService {
 
   CollectionReference get _chatsRef =>
       _firestore.collection(FirestoreConstants.chatsCollection);
+  CollectionReference get _followersRef =>
+      _firestore.collection(FirestoreConstants.followersCollection);
 
   // --- Chats ---
 
@@ -79,9 +81,50 @@ class ChatService {
     await _chatsRef.doc(chatId).update(data);
   }
 
+  Future<bool> areUsersConnected(
+    String currentUserId,
+    String otherUserId,
+  ) async {
+    final following = await _followersRef
+        .where('followerId', isEqualTo: currentUserId)
+        .where('followingId', isEqualTo: otherUserId)
+        .limit(1)
+        .get();
+    if (following.docs.isNotEmpty) return true;
+
+    final followedBack = await _followersRef
+        .where('followerId', isEqualTo: otherUserId)
+        .where('followingId', isEqualTo: currentUserId)
+        .limit(1)
+        .get();
+    return followedBack.docs.isNotEmpty;
+  }
+
   // --- Messages ---
 
   Future<String> sendMessage(String chatId, MessageModel message) async {
+    final chatSnapshot = await _chatsRef.doc(chatId).get();
+    if (!chatSnapshot.exists) {
+      throw Exception('Chat not found');
+    }
+
+    final chatData = chatSnapshot.data() as Map<String, dynamic>;
+    final legacyBlockedBy = chatData['blockedBy'];
+    final isBlocked =
+        (chatData['isBlocked'] as bool?) ??
+        (legacyBlockedBy is String && legacyBlockedBy.isNotEmpty) ||
+            (legacyBlockedBy is List && legacyBlockedBy.isNotEmpty);
+    if (isBlocked) {
+      throw Exception('Conversation is blocked');
+    }
+
+    final statusRaw = (chatData['status'] as String?) ?? 'accepted';
+    final requestedBy = chatData['requestedBy'] as String?;
+    final shouldAcceptRequest =
+        statusRaw == ChatConversationStatus.request.name &&
+        requestedBy != null &&
+        requestedBy != message.senderId;
+
     final batch = _firestore.batch();
 
     final messageRef = _chatsRef
@@ -96,6 +139,8 @@ class ChatService {
       'lastMessage': message.content,
       'lastMessageSenderId': message.senderId,
       'lastMessageTime': Timestamp.fromDate(message.createdAt),
+      if (shouldAcceptRequest) 'status': ChatConversationStatus.accepted.name,
+      if (shouldAcceptRequest) 'requestedBy': null,
     });
 
     await batch.commit();

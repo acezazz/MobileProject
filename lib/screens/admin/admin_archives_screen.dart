@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -13,6 +14,63 @@ class AdminArchivesScreen extends StatelessWidget {
       .where('status', isEqualTo: 'archived')
       .limit(200)
       .snapshots();
+
+  Widget _buildPreview(Map<String, dynamic> data) {
+    final imageUrls =
+        (data['imageUrls'] as List?)
+            ?.map((item) => '$item'.trim())
+            .where((item) => item.isNotEmpty)
+            .toList() ??
+        const <String>[];
+    final legacyImage = (data['imageUrl'] as String?)?.trim() ?? '';
+    final previewImage = imageUrls.isNotEmpty
+        ? imageUrls.first
+        : (legacyImage.isNotEmpty ? legacyImage : '');
+
+    final hasVideo = ((data['videoUrls'] as List?) ?? const []).isNotEmpty;
+    final hasFile = ((data['fileUrls'] as List?) ?? const []).isNotEmpty;
+
+    if (previewImage.isNotEmpty) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: CachedNetworkImage(
+          imageUrl: previewImage,
+          width: 54,
+          height: 54,
+          fit: BoxFit.cover,
+          placeholder: (context, url) => const SizedBox(
+            width: 54,
+            height: 54,
+            child: ColoredBox(color: Colors.black12),
+          ),
+          errorWidget: (context, url, error) => const SizedBox(
+            width: 54,
+            height: 54,
+            child: ColoredBox(
+              color: Colors.black12,
+              child: Icon(Icons.broken_image_outlined),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: 54,
+      height: 54,
+      decoration: BoxDecoration(
+        color: Colors.black12,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Icon(
+        hasVideo
+            ? Icons.play_circle_outline
+            : hasFile
+            ? Icons.attach_file
+            : Icons.text_fields,
+      ),
+    );
+  }
 
   Future<void> _restorePost({
     required BuildContext context,
@@ -115,6 +173,8 @@ class AdminArchivesScreen extends StatelessWidget {
                   (data['userUsername'] ?? data['userName'] ?? 'user')
                       .toString();
               final content = (data['content'] ?? '').toString().trim();
+              final status = (data['status'] ?? 'archived').toString();
+              final privacy = (data['privacy'] ?? 'public').toString();
               final createdAt = data['createdAt'];
               final createdLabel = createdAt is Timestamp
                   ? createdAt.toDate().toLocal().toString()
@@ -123,9 +183,12 @@ class AdminArchivesScreen extends StatelessWidget {
               return Card(
                 margin: EdgeInsets.zero,
                 child: ListTile(
+                  leading: _buildPreview(data),
                   title: Text('@$author'),
                   subtitle: Text(
-                    '${content.isEmpty ? '(no text)' : content}\n$createdLabel',
+                    '${content.isEmpty ? '(no text)' : content}\n'
+                    'status: $status • privacy: $privacy\n'
+                    '$createdLabel',
                   ),
                   isThreeLine: true,
                   trailing: Row(

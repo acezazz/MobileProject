@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -25,6 +26,42 @@ final activityItemsProvider = FutureProvider<List<_ActivityItem>>((ref) async {
   );
 
   final items = <_ActivityItem>[];
+
+  final moderationNotifications = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(user.uid)
+      .collection('notifications')
+      .orderBy('createdAt', descending: true)
+      .limit(50)
+      .get();
+
+  for (final doc in moderationNotifications.docs) {
+    final data = doc.data();
+    final type = (data['type'] ?? '').toString();
+    if (type != 'warning' && type != 'suspension') {
+      continue;
+    }
+
+    final createdAtRaw = data['createdAt'];
+    final createdAt = createdAtRaw is Timestamp
+        ? createdAtRaw.toDate()
+        : DateTime.now();
+
+    items.add(
+      _ActivityItem(
+        type: _ActivityType.moderation,
+        title: (data['title'] ?? 'Moderation update').toString(),
+        subtitle: (data['message'] ?? '').toString(),
+        createdAt: createdAt,
+        icon: type == 'suspension'
+            ? Icons.gpp_bad_outlined
+            : Icons.warning_amber_rounded,
+        targetPostId: (data['postId'] ?? '').toString().trim().isEmpty
+            ? null
+            : (data['postId'] ?? '').toString().trim(),
+      ),
+    );
+  }
 
   for (var i = 0; i < followerUsers.length; i++) {
     final follower = followers[i];
@@ -118,6 +155,8 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
             .toList();
       case _NotificationFilter.followBack:
         return items.where((i) => i.type == _ActivityType.followBack).toList();
+      case _NotificationFilter.moderation:
+        return items.where((i) => i.type == _ActivityType.moderation).toList();
     }
   }
 
@@ -187,6 +226,15 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                         );
                       },
                     ),
+                    ChoiceChip(
+                      label: const Text('Moderation'),
+                      selected: _filter == _NotificationFilter.moderation,
+                      onSelected: (_) {
+                        setState(
+                          () => _filter = _NotificationFilter.moderation,
+                        );
+                      },
+                    ),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -211,6 +259,12 @@ class _ActivityScreenState extends ConsumerState<ActivityScreen> {
                               context.push(
                                 '/post/${item.targetPostId}?focus=comments',
                               );
+                            }
+                            return;
+                          }
+                          if (item.type == _ActivityType.moderation) {
+                            if (item.targetPostId != null) {
+                              context.push('/post/${item.targetPostId}');
                             }
                             return;
                           }
@@ -259,6 +313,12 @@ class _ActivityItem {
   });
 }
 
-enum _ActivityType { likeComment, newFollowing, followBack }
+enum _ActivityType { likeComment, newFollowing, followBack, moderation }
 
-enum _NotificationFilter { all, likeComment, newFollowing, followBack }
+enum _NotificationFilter {
+  all,
+  likeComment,
+  newFollowing,
+  followBack,
+  moderation,
+}

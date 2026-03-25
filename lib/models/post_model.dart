@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 enum PostPrivacy { public, followersOnly, onlyMe }
 
-enum PostStatus { published, draft, archived }
+enum PostStatus { published, draft, archived, suspended }
 
 class PostModel {
   final String id;
